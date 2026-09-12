@@ -59,3 +59,27 @@ Usuários autorizados SHALL listar documentos do Client filtrando por modelo e d
 #### Scenario: Filtro por modelo
 
 WHEN o usuário filtra por CT-e THEN somente CT-e do Client SHALL ser listado.
+
+### Requirement: Portfólio de documentos
+
+O sistema SHALL ter visão portfólio em `/documents` com tabs Visão, Mercadorias, Serviços e Operação (cards, gráfico, famílias, rankings, recentes e atenção), tabela global em `/documents/all` e atenção da carteira em `/documents/clients`, seguindo o padrão visual do `_legacy` adaptado ao `AppSidebarLayout`.
+
+#### Scenario: Painel do portfólio
+
+WHEN o usuário abre `/documents` THEN ele SHALL ver agregados da carteira (documentos, XML pendente, atenção de sync) com recorte por período.
+
+### Requirement: Tabela avançada de documentos
+
+A tabela SHALL ter busca com atalho `/`, filtros Tipo/Status/Origem em popover, menu Exibição, ordenação por Documento/Emissão/Status, paginação via query-string e menu de ações por linha (Abrir detalhes, Baixar XML, Ver DANFSe — desabilitados quando o artefato não existe). Seleção em massa SHALL ficar desabilitada na v1.
+
+#### Scenario: Linha sem artefato
+
+WHEN o documento não tem XML completo THEN a ação Baixar XML SHALL aparecer desabilitada como "XML indisponível".
+
+### Requirement: Detalhe e DANFE em overlays
+
+O detalhe SHALL abrir em slideover (seções disponíveis/pendentes, emitente, destinatário, chave com botão copiar, completude e proveniência com selo ADN/XML derivado); DANFE/DANFSe SHALL abrir em modal com preview do PDF; ambos alimentados por URL assinada curta do backend, sem expor referência interna.
+
+#### Scenario: Preview do DANFSe
+
+WHEN o usuário clica Ver DANFSe em documento com artefato THEN o modal SHALL exibir o PDF, e com falha SHALL exibir erro com retry somente quando retryable.

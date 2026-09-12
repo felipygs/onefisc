@@ -43,3 +43,11 @@ A tela do Client SHALL exibir o estado do certificado (válido, vence em breve, 
 #### Scenario: Certificado expirado
 
 WHEN o certificado do Client expira THEN novas sincronizações daquele canal SHALL ser suspensas com aviso pedindo a troca, sem apagar os documentos já guardados.
+
+### Requirement: Certificado em rail + modais
+
+A sub-tab Certificado SHALL usar rail lateral com badge de validade e modais de upload de PFX e de senha do portal (sem página separada); erros de leitura SHALL aparecer em alerta junto da ação, e a senha SHALL nunca ser reexibida.
+
+#### Scenario: Upload com erro
+
+WHEN o PFX não abre com a senha THEN o modal SHALL manter-se aberto exibindo o motivo, sem salvar nada.

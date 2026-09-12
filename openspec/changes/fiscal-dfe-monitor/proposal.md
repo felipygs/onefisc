@@ -10,7 +10,8 @@ Escritórios de contabilidade perdem horas por fechamento cobrando XML de client
 - Entrada de CT-e via distribuição nacional (fonte AN).
 - NFS-e nacional em dois canais: ADN (API com mTLS) primário e portal do Emissor Nacional como fallback; município não aderente vira Cobertura limitada terminal, sem fallback municipal.
 - Guarda de XML em disco privado com retenção permanente enquanto o Client ativo; cada Documento Fiscal persistido conta 1 no volume mensal do Plan.
-- Aba Fiscal na tela do Client com tabela, filtros, estado da última sincronização e DANFE/DANFSe.
+- Aba Fiscal na tela do Client com tabela avançada, filtros, estado da última sincronização (leitura pura, sem botão manual), DANFE/DANFSe e certificado em rail + modais.
+- Visão portfólio em `/documents` (painel com tabs Visão/Mercadorias/Serviços/Operação), tabela global em `/documents/all` e atenção da carteira em `/documents/clients`, no estilo do `_legacy` adaptado ao `AppSidebarLayout`.
 - Auditoria de uploads de certificado, sincronizações e manifestações.
 
 ## Out-of-Scope
@@ -38,14 +39,16 @@ Escritórios de contabilidade perdem horas por fechamento cobrando XML de client
 ## Impact
 
 - Backend: models ClientCredential, FiscalSyncSubscription, FiscalDocument, FiscalCoverageEvidence; jobs na fila `fiscal`; clients HTTP (sped-nfe, sped-cte, ADN); migrations novas; dependências `nfephp-org/sped-nfe`, `nfephp-org/sped-cte`, pacote de render DANFSe.
-- Frontend: aba Fiscal em `clients/Show.vue`, telas de certificado, componentes Nuxt UI conforme catálogo abaixo.
+- Frontend: páginas `documents/Index|All|Clients.vue`, aba Fiscal em `clients/Show.vue`, componentes `documents/*` (tabela, filtros, slideover, modais, painel) sobre Inertia props, conforme catálogo abaixo.
 - Banco: novas tabelas via migrations; XML em disco privado (não no banco).
 - Compatibilidade: sem quebra; módulo novo atrás de credencial válida por Client.
 
-## UI Catalog (Nuxt UI v4)
+## UI Catalog (Nuxt UI v4 + Inertia, estilo `_legacy` adaptado)
 
-Shell padrão `UApp → UDashboardGroup → UDashboardSidebar → UDashboardPanel`.
+Shell `AppSidebarLayout` (sem `UDashboardGroup`, sem API JSON nova); breadcrumbs via layout; rotas Wayfinder, nunca hardcode; filtros/ordenação/paginação via `router.get` com query-string (padrão do `clients/Index` atual).
 
-- `clients/Show.vue` aba Fiscal: `UTabs` (Documentos, Sincronização, Certificado) + `UTable` (chave, modelo `UBadge`, direção, emitente, valor, data) + filtros (`UInput` busca + `USelect` modelo/direção) + `UPagination` + `UAlert` de Cobertura limitada + `UAlert` de certificado expirado.
-- `fiscal/Certificates/Create.vue`: `UForm` (`UInput` arquivo PFX + `UInput` senha + `UButton` validar e salvar) + `UAlert` de erro de leitura.
-- Estados globais: `UEmpty` (sem documentos), `USkeleton` (carregando), `UBadge` de validade do certificado, `UToast` via `useToast`.
+- `documents/Index.vue` (portfólio): `UTabs` (Visão, Mercadorias, Serviços, Operação) + `PanelCards` (`UPageCard`) + gráfico `@unovis/vue` + `PanelFamilies` + `PanelRank` (leaders/chart/detailed) + `PanelRecent` + `PanelAttention` (motivo→badge: falha/quarentena/cobertura limitada = error, sem-certificado/vencendo/XML pendente = warning).
+- `documents/All.vue` + `documents/Clients.vue`: `FiltersToolbar` (`UInput` busca com atalho `/` + popover Tipo/Status/Origem + menu Exibição) + `DocumentsTable` (`UTable`: Documento com badge de família + número/série + chave mono, Emissão, Emitente/Prestador, Destinatário/Tomador, Status, Ações em dropdown) + `UPagination`.
+- `clients/Show.vue` aba Fiscal: sub-tabs Documentos (reutiliza tabela + filtros + `DetailSlideover` + `DanfeModal` com preview em iframe), Sincronização (leitura pura: última execução, documentos novos, próximo ciclo, bloqueio SEFAZ, volume — sem botão manual, sem editor de assinatura) e Certificado (rail `CredentialsRailCard` + `ValidityBadge` + modais de upload PFX e senha do portal, só admin).
+- Downloads (XML e DANFE/DANFSe) via URL assinada curta do backend, sem expor referência interna.
+- Estados globais: `UEmpty` (sem documentos, orienta subir certificado), `USkeleton` (carregando), `UAlert` de cobertura limitada e de certificado expirado, `UToast` via `useToast`; tudo com `data-test`.

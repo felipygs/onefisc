@@ -33,6 +33,18 @@ Ver proposal.md (Why). Pré-requisito: change `multi-account-a-b-planos` com tas
 
 **Contagem de volume na persistência.** Cada documento persistido soma 1; cursor preservado com volume esgotado. Alternativa (contar consultas) descartada: puniria retry e janela vazia.
 
+## Decisões de frontend (2026-09-12, estilo `_legacy` adaptado)
+
+Referência: `_legacy/apps/web` (shell `UDashboardGroup`, `DocumentsPanelContent`, `DocumentsTable`, `DocumentsFiltersToolbar`, `DocumentsDetailSlideover`, `DocumentsDanfeModal`, `FiscalSyncControls`, `DocumentsPanelAttention`, `ClientDetailLayout` 8/4, DESIGN.md "Central Operacional"). O onefisc usa Inertia + `AppSidebarLayout` + tabela simples com `router.get` (ver `clients/Index.vue`), então o legado é autoridade visual, não código a copiar.
+
+**Inertia-first, sem API JSON nova.** Páginas `documents/Index|All|Clients.vue` + aba Fiscal em `clients/Show.vue`, alimentadas por props de controllers finos (`DocumentOverview`, `FiscalDocument`, `FiscalSyncState` leitura, `Certificate`, `Download` com URL assinada curta). Filtros/ordenação/paginação via `router.get` com query-string. Alternativa (API JSON + composables `useApi` como no legado) descartada: duplicaria auth/isolamento e fugiria do padrão Wayfinder + policies do repo.
+
+**Sem `UDashboardGroup`.** Componentes do legado viram `resources/js/components/documents/*` dentro do `AppSidebarLayout`; `UPageCard` nos cards, `UTable` (deps `@nuxt/ui` + `@tanstack/table-core` já instaladas) na tabela, `UModal`/sheet no slideover e modais, `@unovis/vue` (já instalado) no gráfico.
+
+**Sync leitura pura; certificado em rail + modais.** Sem "Sincronizar agora", sem editor de assinatura, sem campo de chave em tela (consulta por chave é capacidade do backend, sem input na v1). Certificado sem `Certificates/Create.vue`: rail com badge + `UploadModal` + `PortalPasswordModal`, só admin (`canOperate`).
+
+**Cortes v1.** Sem seleção em massa (`selectable=false`, sem endpoints bulk), sem DACTE, sem provedor municipal, sem preview fora do modal.
+
 ## Risks / Trade-offs
 
 - [SEFAZ bloqueia por excesso (656)] → Respeito estrito a 137/656 + jitter entre Clients + limite de páginas por ciclo.

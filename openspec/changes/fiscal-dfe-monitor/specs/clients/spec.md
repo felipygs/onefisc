@@ -2,7 +2,7 @@
 
 ### Requirement: Aba Fiscal no Client
 
-A tela do Client SHALL ter uma aba Fiscal com documentos (tabela com filtros por modelo e direção, busca por chave), estado da última sincronização (hora, novidades, próximo ciclo) e estado do certificado; sem documentos, a aba SHALL exibir estado vazio orientando a subir o certificado.
+A tela do Client SHALL ter uma aba Fiscal com sub-tabs Documentos, Sincronização e Certificado, dentro do `AppSidebarLayout` (sem shell novo). Documentos reutiliza a tabela avançada e os filtros globais; Sincronização é leitura pura do estado da última execução (hora, novidades, próximo ciclo, bloqueio, volume); Certificado usa rail com badge de validade + modais de upload (sem página separada). Sem documentos, a aba SHALL exibir estado vazio orientando a subir o certificado.
 
 #### Scenario: Aba com estado visível
 

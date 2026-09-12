@@ -16,6 +16,14 @@ WHEN o ciclo horário encontra documentos novos THEN eles SHALL ser persistidos 
 
 WHEN o ciclo horário não encontra nada novo THEN o estado SHALL registrar a execução sem erro e manter o cursor.
 
+### Requirement: Sincronização como leitura pura na tela
+
+A tela SHALL exibir capacidade por família, última execução (hora, documentos novos, próximo ciclo), bloqueio SEFAZ e volume esgotado com CTA de upgrade; não há botão de sincronização manual, editor de intervalo/assinatura nem campo de chave em tela na v1.
+
+#### Scenario: Tela sem ação manual
+
+WHEN o usuário abre a sub-tab Sincronização THEN ele SHALL ver somente estado e avisos, sem nenhum botão que dispare ciclo.
+
 ### Requirement: Respeito ao bloqueio SEFAZ
 
 WHEN a SEFAZ responde pedindo pausa (nada localizado ou consumo indevido) THEN a sincronização daquele Client SHALL ficar bloqueada até a próxima janela, sem novas tentativas no intervalo.

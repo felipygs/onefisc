@@ -8,7 +8,7 @@
 
 - [ ] 2.1 Implementar upload de A1 por Client (validação PKCS#12, thumbprint, segredo criptografado, só admin), e verificar com testes de válido/expirado/negado por papel
 - [ ] 2.2 Implementar senha do portal NFS-e por Client (guardada, nunca reexibida), e verificar com teste de guarda e uso
-- [ ] 2.3 Criar telas de certificado com Nuxt UI (upload, validade, avisos), e verificar com `npm run build` + smoke manual
+- [ ] 2.3 Criar certificado em rail + modais com Nuxt UI (rail com badge de validade, UploadModal PFX+senha, PortalPasswordModal, alertas de erro junto da ação, só admin), e verificar com `npm run build` + smoke manual
 
 ## 3. Sincronização
 
@@ -21,7 +21,10 @@
 ## 4. Documentos e telas
 
 - [ ] 4.1 Implementar guarda de XML em disco privado + metadados com DANFE/DANFSe (sem DACTE), e verificar com testes de retenção e isolamento
-- [ ] 4.2 Criar aba Fiscal no Client com Nuxt UI (tabela, filtros, estado de sincronização, avisos), e verificar com `npm run build` + `npm run types:check` + smoke manual
+- [ ] 4.2 Criar páginas do portfólio com Nuxt UI (`documents/Index` com tabs Visão/Mercadorias/Serviços/Operação + cards + gráfico + famílias + rankings + recentes + atenção; `documents/All` global; `documents/Clients` atenção da carteira), e verificar com `npm run build` + `npm run types:check` + smoke manual
+- [ ] 4.3 Criar tabela avançada + filtros (`DocumentsTable` em `UTable` com ordenação e ações por linha, `FiltersToolbar` com busca `/` + popover Tipo/Status/Origem + Exibição, `UPagination` via query-string, sem seleção em massa), e verificar com `npm run types:check` + smoke manual
+- [ ] 4.4 Criar overlays de documento (`DetailSlideover` com seções/copiar chave + `DanfeModal` com preview via URL assinada + download XML), e verificar com `npm run build` + smoke manual
+- [ ] 4.5 Criar aba Fiscal no Client (`clients/Show.vue` com sub-tabs Documentos/Sincronização leitura pura/Certificado em rail), e verificar com `npm run build` + `npm run types:check` + smoke manual
 
 ## 5. Auditoria e validação
 
