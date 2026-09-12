@@ -87,7 +87,7 @@ class InvitationService
             }
 
             $account = Account::query()->withoutGlobalScopes()->findOrFail($invitation->account_id);
-            $this->limits->ensureUserCapacity($account);
+            $this->ensureAcceptCapacity($account, $invitation);
 
             $user = new User([
                 'name' => $invitation->name,
@@ -105,5 +105,32 @@ class InvitationService
 
             return $user;
         });
+    }
+
+    /**
+     * Accept-time capacity: evaluate post-accept state by excluding the
+     * accepting invite itself from the pending count.
+     */
+    private function ensureAcceptCapacity(Account $account, Invitation $invitation): void
+    {
+        $plan = $this->limits->planFor($account);
+
+        if (! $plan) {
+            return;
+        }
+
+        $users = User::query()->withoutGlobalScopes()->where('account_id', $account->id)->count();
+        $otherPending = Invitation::query()->withoutGlobalScopes()
+            ->where('account_id', $account->id)
+            ->where('id', '!=', $invitation->id)
+            ->whereNull('accepted_at')
+            ->where('expires_at', '>', now())
+            ->count();
+
+        if ($users + $otherPending >= $plan->max_users) {
+            throw ValidationException::withMessages([
+                'limit' => 'Limite de usuários do plano atingido. Solicite upgrade.',
+            ]);
+        }
     }
 }
