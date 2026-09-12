@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\Account;
 use App\Services\AccountProvisioningService;
+use App\Services\AuditService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Gate;
@@ -57,7 +58,7 @@ class AccountController extends Controller
     /**
      * Switch an account to another plan (platform only, Account A).
      */
-    public function updatePlan(Request $request, Account $account): RedirectResponse
+    public function updatePlan(Request $request, Account $account, AuditService $audit): RedirectResponse
     {
         Gate::authorize('manage-platform');
 
@@ -68,7 +69,15 @@ class AccountController extends Controller
         /** @var int $planId */
         $planId = $validated['plan_id'];
 
+        $previousPlanId = $account->plan_id;
+
         $account->update(['plan_id' => $planId]);
+
+        $audit->record(
+            action: 'plan.switch',
+            targetAccountId: $account->id,
+            metadata: ['from_plan_id' => $previousPlanId, 'to_plan_id' => $planId]
+        );
 
         return back()->with('status', 'Plan atualizado.');
     }

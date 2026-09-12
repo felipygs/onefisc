@@ -33,6 +33,22 @@ class AppServiceProvider extends ServiceProvider
     {
         $this->configureDefaults();
         $this->defineRoleGates();
+        $this->registerAuditObservers();
+    }
+
+    /**
+     * Register the best-effort audit observer on audited aggregates.
+     *
+     * AuditLog itself is NEVER observed (prevents infinite recursion).
+     */
+    protected function registerAuditObservers(): void
+    {
+        Account::observe(AuditObserver::class);
+        Plan::observe(AuditObserver::class);
+        Client::observe(AuditObserver::class);
+        Invitation::observe(AuditObserver::class);
+        User::observe(AuditObserver::class);
+        MonitoringCheck::observe(AuditObserver::class);
     }
 
     /**

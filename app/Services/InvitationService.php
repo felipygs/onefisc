@@ -103,6 +103,12 @@ class InvitationService
 
             Auth::login($user);
 
+            app(AuditService::class)->record(
+                action: 'invitation.accepted',
+                targetAccountId: $invitation->account_id,
+                metadata: ['invitation_id' => $invitation->id, 'role' => $invitation->role]
+            );
+
             return $user;
         });
     }
