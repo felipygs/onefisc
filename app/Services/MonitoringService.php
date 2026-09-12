@@ -35,7 +35,7 @@ class MonitoringService
     public function run(Client $client): MonitoringCheck
     {
         /** @var Account $account */
-        $account = $client->account()->withoutGlobalScopes()->firstOrFail();
+        $account = Account::query()->withoutGlobalScopes()->findOrFail($client->account_id);
 
         $this->limits->ensureModule($account, 'monitoring');
         $this->limits->ensureVolume($account);

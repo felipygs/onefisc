@@ -87,7 +87,7 @@ class InvitationService
             }
 
             $account = Account::query()->withoutGlobalScopes()->findOrFail($invitation->account_id);
-            app(PlanLimitService::class)->ensureUserCapacity($account);
+            $this->limits->ensureUserCapacity($account);
 
             $user = new User([
                 'name' => $invitation->name,
