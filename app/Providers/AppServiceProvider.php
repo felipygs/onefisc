@@ -57,6 +57,7 @@ class AppServiceProvider extends ServiceProvider
     protected function defineRoleGates(): void
     {
         Gate::define('manage-users', fn (User $u, Account $a) => $u->account_id === $a->id && in_array($u->role, ['super_admin', 'admin']));
+        Gate::define('manage-certificates', fn (User $u, Account $a) => $u->account_id === $a->id && in_array($u->role, ['super_admin', 'admin']));
         $operateClients = fn (User $u, Account $a) => $u->account_id === $a->id && in_array($u->role, ['super_admin', 'admin', 'operador']);
         Gate::define('operate-clients', $operateClients);
         Gate::define('operate', $operateClients);

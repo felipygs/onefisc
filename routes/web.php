@@ -3,6 +3,7 @@
 use App\Http\Controllers\AccountController;
 use App\Http\Controllers\AccountSwitcherController;
 use App\Http\Controllers\AuditController;
+use App\Http\Controllers\CertificateController;
 use App\Http\Controllers\ClientController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\InvitationController;
@@ -42,6 +43,8 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::get('audit', [AuditController::class, 'index'])->name('audit.index');
 
     Route::post('clients/bulk-destroy', [ClientController::class, 'bulkDestroy'])->name('clients.bulk-destroy');
+    Route::post('clients/{client}/certificate', [CertificateController::class, 'store'])->name('certificates.store');
+    Route::delete('clients/{client}/certificate', [CertificateController::class, 'destroy'])->name('certificates.destroy');
     Route::resource('clients', ClientController::class);
 });
 
