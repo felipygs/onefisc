@@ -99,6 +99,30 @@ class CertificateController extends Controller
         return redirect()->back()->with('status', 'Certificado instalado.');
     }
 
+    public function updatePortalPassword(Client $client, AuditService $audit): RedirectResponse
+    {
+        $account = $this->authorizeCertificate($client);
+
+        $validated = request()->validate([
+            'portal_password' => ['required', 'string', 'min:1', 'max:255'],
+        ]);
+
+        $portalPassword = $validated['portal_password'];
+
+        ClientCredential::updateOrCreate(
+            ['client_id' => $client->id],
+            ['portal_password' => Crypt::encryptString($portalPassword)]
+        );
+
+        $audit->record(
+            action: 'certificates.portal-password',
+            targetAccountId: $account->id,
+            metadata: ['client_id' => $client->id]
+        );
+
+        return redirect()->back()->with('status', 'Senha do portal salva.');
+    }
+
     public function destroy(Client $client, AuditService $audit): RedirectResponse
     {
         $account = $this->authorizeCertificate($client);

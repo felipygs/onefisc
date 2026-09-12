@@ -44,6 +44,7 @@ Route::middleware(['auth', 'verified'])->group(function () {
 
     Route::post('clients/bulk-destroy', [ClientController::class, 'bulkDestroy'])->name('clients.bulk-destroy');
     Route::post('clients/{client}/certificate', [CertificateController::class, 'store'])->name('certificates.store');
+    Route::put('clients/{client}/portal-password', [CertificateController::class, 'updatePortalPassword'])->name('certificates.portal-password');
     Route::delete('clients/{client}/certificate', [CertificateController::class, 'destroy'])->name('certificates.destroy');
     Route::resource('clients', ClientController::class);
 });
