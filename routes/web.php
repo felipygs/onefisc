@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\AccountController;
+use App\Http\Controllers\AccountSwitcherController;
 use App\Http\Controllers\ClientController;
 use App\Http\Controllers\InvitationController;
 use App\Http\Controllers\OnboardingController;
@@ -31,6 +32,10 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::match(['put', 'patch'], 'plans/{plan}', [PlanController::class, 'update'])->name('plans.update');
 
     Route::patch('accounts/{account}/plan', [AccountController::class, 'updatePlan'])->name('accounts.plan.update');
+
+    Route::get('switcher', [AccountSwitcherController::class, 'index'])->name('switcher.index');
+    Route::post('switcher/{account}', [AccountSwitcherController::class, 'select'])->name('switcher.select');
+    Route::delete('switcher', [AccountSwitcherController::class, 'destroy'])->name('switcher.destroy');
 
     Route::resource('clients', ClientController::class);
 });

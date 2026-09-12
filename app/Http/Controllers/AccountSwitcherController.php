@@ -37,6 +37,8 @@ class AccountSwitcherController extends Controller
 
     public function destroy(AuditService $audit): RedirectResponse
     {
+        Gate::authorize('manage-platform');
+
         $targetId = session()->pull('switch_account_id');
 
         if ($targetId) {

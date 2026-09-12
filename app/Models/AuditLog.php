@@ -56,3 +56,4 @@ class AuditLog extends Model
             'metadata' => 'array',
         ];
     }
+}
