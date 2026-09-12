@@ -57,3 +57,4 @@ class Account extends Model
     {
         return $this->profile === 'A';
     }
+}
