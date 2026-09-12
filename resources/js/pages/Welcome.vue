@@ -5,10 +5,7 @@ import { register } from '@/routes';
 </script>
 
 <template>
-    <Head title="Welcome">
-        <link rel="preconnect" href="https://rsms.me/" />
-        <link rel="stylesheet" href="https://rsms.me/inter/inter.css" />
-    </Head>
+    <Head title="Welcome" />
     <div
         class="flex min-h-screen flex-col items-center bg-[#FDFDFC] p-6 text-[#1b1b18] lg:justify-center lg:p-8 dark:bg-[#0a0a0a]"
     >
@@ -51,9 +48,9 @@ import { register } from '@/routes';
                     >
                         <div class="mb-4 flex items-center gap-3">
                             <h1 class="mb-1 font-medium">Let's get started</h1>
-                            <UButton size="xs" color="primary">
-                                Nuxt UI ativo
-                            </UButton>
+                            <UBadge color="success" variant="soft">
+                                Nuxt UI
+                            </UBadge>
                         </div>
                         <p class="mb-2 text-[#706f6c] dark:text-[#A1A09A]">
                             Laravel has an incredibly rich ecosystem. <br />We

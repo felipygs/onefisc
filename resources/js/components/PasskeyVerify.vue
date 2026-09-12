@@ -2,11 +2,6 @@
 import type { UrlMethodPair } from '@inertiajs/core';
 import { router } from '@inertiajs/vue3';
 import { usePasskeyVerify } from '@laravel/passkeys/vue';
-import { KeyRound } from '@lucide/vue';
-import InputError from '@/components/InputError.vue';
-import { Button } from '@/components/ui/button';
-import { Separator } from '@/components/ui/separator';
-import { Spinner } from '@/components/ui/spinner';
 
 type Props = {
     routes?: {
@@ -38,36 +33,34 @@ const { verify, isLoading, error, isSupported } = usePasskeyVerify({
 <template>
     <div v-if="isSupported">
         <div class="grid gap-2">
-            <Button
+            <UButton
                 type="button"
                 variant="outline"
-                class="w-full"
-                @click="verify"
+                block
+                icon="i-lucide-key-round"
+                :loading="isLoading"
                 :disabled="isLoading"
+                @click="verify"
             >
-                <Spinner v-if="isLoading" />
-                <KeyRound v-else class="h-4 w-4" />
                 {{
                     isLoading
                         ? (props.loadingLabel ?? 'Authenticating...')
                         : (props.label ?? 'Sign in with a passkey')
                 }}
-            </Button>
+            </UButton>
 
-            <div v-if="error" class="text-center">
-                <InputError :message="error" />
-            </div>
+            <UAlert
+                v-if="error"
+                color="error"
+                variant="soft"
+                :description="error"
+                class="text-center"
+            />
         </div>
 
-        <div class="relative my-6">
-            <div class="absolute inset-0 flex items-center">
-                <Separator class="w-full" />
-            </div>
-            <div class="relative flex justify-center text-xs uppercase">
-                <span class="bg-background text-muted-foreground px-2">
-                    {{ props.separator ?? 'Or continue with email' }}
-                </span>
-            </div>
-        </div>
+        <USeparator
+            :label="props.separator ?? 'Or continue with email'"
+            class="my-6"
+        />
     </div>
 </template>

@@ -1,17 +1,11 @@
 <script setup lang="ts">
-import { Form, Head } from '@inertiajs/vue3';
-import InputError from '@/components/InputError.vue';
+import { Head, useForm } from '@inertiajs/vue3';
+import PasskeyVerify from '@/components/PasskeyVerify.vue';
 import PasswordInput from '@/components/PasswordInput.vue';
 import TextLink from '@/components/TextLink.vue';
-import { Button } from '@/components/ui/button';
-import { Checkbox } from '@/components/ui/checkbox';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Spinner } from '@/components/ui/spinner';
 import { register } from '@/routes';
 import { store } from '@/routes/login';
 import { request } from '@/routes/password';
-import PasskeyVerify from '@/components/PasskeyVerify.vue';
 
 defineOptions({
     layout: {
@@ -24,31 +18,43 @@ defineProps<{
     status?: string;
     canResetPassword: boolean;
 }>();
+
+const form = useForm({
+    email: '',
+    password: '',
+    remember: false,
+});
+
+function onSubmit(): void {
+    form.post(store.url(), {
+        onSuccess: () => form.reset('password'),
+    });
+}
 </script>
 
 <template>
     <Head title="Log in" />
 
-    <div
+    <UAlert
         v-if="status"
-        class="mb-4 text-center text-sm font-medium text-green-600"
-    >
-        {{ status }}
-    </div>
+        color="success"
+        variant="soft"
+        :description="status"
+        class="mb-4"
+    />
 
     <PasskeyVerify />
 
-    <Form
-        v-bind="store.form()"
-        :reset-on-success="['password']"
-        v-slot="{ errors, processing }"
-        class="flex flex-col gap-6"
-    >
+    <UForm :state="form" class="flex flex-col gap-6" @submit="onSubmit">
         <div class="grid gap-6">
-            <div class="grid gap-2">
-                <Label for="email">Email address</Label>
-                <Input
-                    id="email"
+            <UFormField
+                label="Email address"
+                name="email"
+                :error="form.errors.email"
+                required
+            >
+                <UInput
+                    v-model="form.email"
                     type="email"
                     name="email"
                     required
@@ -56,13 +62,17 @@ defineProps<{
                     :tabindex="1"
                     autocomplete="email"
                     placeholder="email@example.com"
+                    class="w-full"
                 />
-                <InputError :message="errors.email" />
-            </div>
+            </UFormField>
 
-            <div class="grid gap-2">
-                <div class="flex items-center justify-between">
-                    <Label for="password">Password</Label>
+            <UFormField
+                label="Password"
+                name="password"
+                :error="form.errors.password"
+                required
+            >
+                <template #hint>
                     <TextLink
                         v-if="canResetPassword"
                         :href="request()"
@@ -71,40 +81,43 @@ defineProps<{
                     >
                         Forgot your password?
                     </TextLink>
-                </div>
+                </template>
                 <PasswordInput
-                    id="password"
+                    v-model="form.password"
                     name="password"
                     required
                     :tabindex="2"
                     autocomplete="current-password"
                     placeholder="Password"
+                    class="w-full"
                 />
-                <InputError :message="errors.password" />
-            </div>
+            </UFormField>
 
             <div class="flex items-center justify-between">
-                <Label for="remember" class="flex items-center space-x-3">
-                    <Checkbox id="remember" name="remember" :tabindex="3" />
-                    <span>Remember me</span>
-                </Label>
+                <UCheckbox
+                    v-model="form.remember"
+                    name="remember"
+                    label="Remember me"
+                    :tabindex="3"
+                />
             </div>
 
-            <Button
+            <UButton
                 type="submit"
-                class="mt-4 w-full"
+                block
+                class="mt-4"
                 :tabindex="4"
-                :disabled="processing"
+                :loading="form.processing"
+                :disabled="form.processing"
                 data-test="login-button"
             >
-                <Spinner v-if="processing" />
                 Log in
-            </Button>
+            </UButton>
         </div>
 
-        <div class="text-muted-foreground text-center text-sm">
+        <div class="text-muted text-center text-sm">
             Don't have an account?
             <TextLink :href="register()" :tabindex="5">Sign up</TextLink>
         </div>
-    </Form>
+    </UForm>
 </template>

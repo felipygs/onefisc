@@ -1,71 +1,68 @@
 <script setup lang="ts">
-import { Link } from '@inertiajs/vue3';
-import Heading from '@/components/Heading.vue';
-import { Button } from '@/components/ui/button';
-import { Separator } from '@/components/ui/separator';
-import { useCurrentUrl } from '@/composables/useCurrentUrl';
-import { toUrl } from '@/lib/utils';
+import type { NavigationMenuItem } from '@nuxt/ui';
 import { edit as editAppearance } from '@/routes/appearance';
+import { index as membersIndex } from '@/routes/members';
+import { edit as editNotifications } from '@/routes/notifications';
 import { edit as editProfile } from '@/routes/profile';
 import { edit as editSecurity } from '@/routes/security';
-import type { NavItem } from '@/types';
 
-const sidebarNavItems: NavItem[] = [
-    {
-        title: 'Profile',
-        href: editProfile(),
-    },
-    {
-        title: 'Security',
-        href: editSecurity(),
-    },
-    {
-        title: 'Appearance',
-        href: editAppearance(),
-    },
-];
-
-const { isCurrentOrParentUrl } = useCurrentUrl();
+const links = [
+    [
+        {
+            label: 'General',
+            icon: 'i-lucide-user',
+            to: editProfile.url(),
+            exact: true,
+        },
+        {
+            label: 'Members',
+            icon: 'i-lucide-users',
+            to: membersIndex.url(),
+        },
+        {
+            label: 'Notifications',
+            icon: 'i-lucide-bell',
+            to: editNotifications.url(),
+        },
+        {
+            label: 'Security',
+            icon: 'i-lucide-shield',
+            to: editSecurity.url(),
+        },
+        {
+            label: 'Appearance',
+            icon: 'i-lucide-palette',
+            to: editAppearance.url(),
+        },
+    ],
+] satisfies NavigationMenuItem[][];
 </script>
 
 <template>
-    <div class="px-4 py-6">
-        <Heading
-            title="Settings"
-            description="Manage your profile and account settings"
-        />
+    <UDashboardPanel id="settings" :ui="{ body: 'lg:py-12' }">
+        <template #header>
+            <UDashboardNavbar title="Settings">
+                <template #leading>
+                    <UDashboardSidebarCollapse />
+                </template>
+            </UDashboardNavbar>
 
-        <div class="flex flex-col lg:flex-row lg:space-x-12">
-            <aside class="w-full max-w-xl lg:w-48">
-                <nav
-                    class="flex flex-col space-y-1 space-x-0"
-                    aria-label="Settings"
-                >
-                    <Button
-                        v-for="item in sidebarNavItems"
-                        :key="toUrl(item.href)"
-                        variant="ghost"
-                        :class="[
-                            'w-full justify-start',
-                            { 'bg-muted': isCurrentOrParentUrl(item.href) },
-                        ]"
-                        as-child
-                    >
-                        <Link :href="item.href">
-                            <component :is="item.icon" class="h-4 w-4" />
-                            {{ item.title }}
-                        </Link>
-                    </Button>
-                </nav>
-            </aside>
+            <UDashboardToolbar>
+                <!-- NOTE: The `-mx-1` class is used to align with the `DashboardSidebarCollapse` button here. -->
+                <UNavigationMenu
+                    :items="links"
+                    highlight
+                    class="-mx-1 flex-1"
+                />
+            </UDashboardToolbar>
+        </template>
 
-            <Separator class="my-6 lg:hidden" />
-
-            <div class="flex-1 md:max-w-2xl">
-                <section class="max-w-xl space-y-12">
-                    <slot />
-                </section>
+        <template #body>
+            <div
+                class="mx-auto flex w-full flex-col gap-4 sm:gap-6 lg:max-w-2xl lg:gap-12"
+            >
+                <slot />
             </div>
-        </div>
-    </div>
+        </template>
+    </UDashboardPanel>
 </template>

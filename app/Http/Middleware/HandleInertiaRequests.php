@@ -2,6 +2,8 @@
 
 namespace App\Http\Middleware;
 
+use App\Models\Account;
+use App\Models\AuditLog;
 use App\Services\PlanLimitService;
 use App\Support\CurrentAccount;
 use Illuminate\Http\Request;
@@ -45,6 +47,40 @@ class HandleInertiaRequests extends Middleware
             ],
             'currentAccount' => fn () => CurrentAccount::resolve(),
             'isSwitching' => fn () => CurrentAccount::isSwitching(),
+            'switchableAccounts' => function () use ($request) {
+                $user = $request->user();
+
+                if (! $user || ! $user->can('manage-platform')) {
+                    return null;
+                }
+
+                return Account::query()->orderBy('name')->get(['id', 'name'])->values();
+            },
+            'notifications' => function () {
+                $account = CurrentAccount::resolve();
+
+                if (! $account) {
+                    return null;
+                }
+
+                return AuditLog::query()
+                    ->with('actor:id,name')
+                    ->where(function ($query) use ($account) {
+                        $query->where('origin_account_id', $account->id)
+                            ->orWhere('target_account_id', $account->id);
+                    })
+                    ->latest('id')
+                    ->limit(10)
+                    ->get()
+                    ->map(fn (AuditLog $log): array => [
+                        'id' => $log->id,
+                        'sender' => ['name' => $log->senderName()],
+                        'body' => self::notificationBody($log),
+                        'date' => $log->created_at?->toIso8601String(),
+                    ])
+                    ->values()
+                    ->all();
+            },
             'permissions' => function () use ($request) {
                 $user = $request->user();
                 $account = CurrentAccount::resolve();
@@ -52,7 +88,7 @@ class HandleInertiaRequests extends Middleware
                 if (! $user || ! $account) {
                     return [
                         'manage-users' => false,
-                        'manage-clients' => false,
+                        'operate-clients' => false,
                         'manage-platform' => false,
                         'operate' => false,
                     ];
@@ -60,7 +96,7 @@ class HandleInertiaRequests extends Middleware
 
                 return [
                     'manage-users' => $user->can('manage-users', [$account]),
-                    'manage-clients' => $user->can('manage-clients', [$account]),
+                    'operate-clients' => $user->can('operate-clients', [$account]),
                     'manage-platform' => $user->can('manage-platform'),
                     'operate' => $user->can('operate', [$account]),
                 ];
@@ -76,5 +112,22 @@ class HandleInertiaRequests extends Middleware
                 return app(PlanLimitService::class)->usage($account);
             },
         ];
+    }
+
+    protected static function notificationBody(AuditLog $log): string
+    {
+        $metadata = $log->metadata ?? [];
+
+        return match ($log->action) {
+            'switcher.enter' => 'Passou a atuar como '.($metadata['account_name'] ?? 'outra Account').'.',
+            'switcher.exit' => 'Encerrou a atuação em outra Account.',
+            'clients.store' => 'Cadastrou um Client.',
+            'clients.update' => 'Atualizou um Client.',
+            'clients.destroy' => 'Removeu um Client.',
+            'invitations.store' => 'Enviou um Convite.',
+            'invitations.accept' => 'Aceitou um Convite.',
+            'plans.update' => 'Trocou o Plan de uma Account.',
+            default => $log->action,
+        };
     }
 }

@@ -13,8 +13,8 @@ export default defineConfig({
             input: ['resources/css/app.css', 'resources/js/app.ts'],
             refresh: true,
             fonts: [
-                bunny('Instrument Sans', {
-                    weights: [400, 500, 600],
+                bunny('Public Sans', {
+                    weights: [400, 500, 600, 700],
                 }),
             ],
         }),
@@ -22,6 +22,17 @@ export default defineConfig({
         tailwindcss(),
         ui({
             router: 'inertia',
+            // Aparência (claro/escuro) é gerenciada pelo nosso próprio
+            // `useAppearance` (localStorage + cookie + Blade). O colorMode
+            // do plugin (vueuse, preferência `auto`) brigava pelo controle
+            // da classe `dark` no boot e derrubava a escolha salva.
+            colorMode: false,
+            ui: {
+                colors: {
+                    primary: 'green',
+                    neutral: 'zinc',
+                },
+            },
         }),
         vue({
             template: {

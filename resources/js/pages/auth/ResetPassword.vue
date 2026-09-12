@@ -1,12 +1,6 @@
 <script setup lang="ts">
-import { Form, Head } from '@inertiajs/vue3';
-import { ref } from 'vue';
-import InputError from '@/components/InputError.vue';
+import { Head, useForm } from '@inertiajs/vue3';
 import PasswordInput from '@/components/PasswordInput.vue';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Spinner } from '@/components/ui/spinner';
 import { update } from '@/routes/password';
 
 defineOptions({
@@ -22,37 +16,46 @@ const props = defineProps<{
     passwordRules: string;
 }>();
 
-const inputEmail = ref(props.email);
+const form = useForm({
+    email: props.email,
+    password: '',
+    password_confirmation: '',
+});
+
+function onSubmit(): void {
+    form.transform((data) => ({ ...data, token: props.token })).post(
+        update.url(),
+        {
+            onSuccess: () => form.reset('password', 'password_confirmation'),
+        },
+    );
+}
 </script>
 
 <template>
     <Head title="Reset password" />
 
-    <Form
-        v-bind="update.form()"
-        :transform="(data) => ({ ...data, token, email })"
-        :reset-on-success="['password', 'password_confirmation']"
-        v-slot="{ errors, processing }"
-    >
+    <UForm :state="form" @submit="onSubmit">
         <div class="grid gap-6">
-            <div class="grid gap-2">
-                <Label for="email">Email</Label>
-                <Input
-                    id="email"
+            <UFormField label="Email" name="email" :error="form.errors.email">
+                <UInput
+                    v-model="form.email"
                     type="email"
                     name="email"
                     autocomplete="email"
-                    v-model="inputEmail"
-                    class="mt-1 block w-full"
                     readonly
+                    class="mt-1 block w-full"
                 />
-                <InputError :message="errors.email" class="mt-2" />
-            </div>
+            </UFormField>
 
-            <div class="grid gap-2">
-                <Label for="password">Password</Label>
+            <UFormField
+                label="Password"
+                name="password"
+                :error="form.errors.password"
+                required
+            >
                 <PasswordInput
-                    id="password"
+                    v-model="form.password"
                     name="password"
                     autocomplete="new-password"
                     class="mt-1 block w-full"
@@ -60,31 +63,34 @@ const inputEmail = ref(props.email);
                     placeholder="Password"
                     :passwordrules="passwordRules"
                 />
-                <InputError :message="errors.password" />
-            </div>
+            </UFormField>
 
-            <div class="grid gap-2">
-                <Label for="password_confirmation"> Confirm password </Label>
+            <UFormField
+                label="Confirm password"
+                name="password_confirmation"
+                :error="form.errors.password_confirmation"
+                required
+            >
                 <PasswordInput
-                    id="password_confirmation"
+                    v-model="form.password_confirmation"
                     name="password_confirmation"
                     autocomplete="new-password"
                     class="mt-1 block w-full"
                     placeholder="Confirm password"
                     :passwordrules="passwordRules"
                 />
-                <InputError :message="errors.password_confirmation" />
-            </div>
+            </UFormField>
 
-            <Button
+            <UButton
                 type="submit"
-                class="mt-4 w-full"
-                :disabled="processing"
+                block
+                class="mt-4"
+                :loading="form.processing"
+                :disabled="form.processing"
                 data-test="reset-password-button"
             >
-                <Spinner v-if="processing" />
                 Reset password
-            </Button>
+            </UButton>
         </div>
-    </Form>
+    </UForm>
 </template>

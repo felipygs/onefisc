@@ -27,6 +27,7 @@ use Laravel\Fortify\TwoFactorAuthenticatable;
  * @property string|null $remember_token
  * @property int|null $account_id
  * @property string $role
+ * @property array<string, bool>|null $notification_preferences
  * @property Carbon|null $created_at
  * @property Carbon|null $updated_at
  */
@@ -61,6 +62,7 @@ class User extends Authenticatable implements PasskeyUser
             'email_verified_at' => 'datetime',
             'password' => 'hashed',
             'two_factor_confirmed_at' => 'datetime',
+            'notification_preferences' => 'array',
         ];
     }
 }

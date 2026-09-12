@@ -8,9 +8,23 @@
 
 @custom-variant dark (&:is(.dark *));
 
+@theme {
+    --color-green-50: #effdf5;
+    --color-green-100: #d9fbe8;
+    --color-green-200: #b3f5d1;
+    --color-green-300: #75edae;
+    --color-green-400: #00dc82;
+    --color-green-500: #00c16a;
+    --color-green-600: #00a155;
+    --color-green-700: #007f45;
+    --color-green-800: #016538;
+    --color-green-900: #0a5331;
+    --color-green-950: #052e16;
+}
+
 @theme inline {
     --font-sans:
-        Instrument Sans, ui-sans-serif, system-ui, sans-serif,
+        'Public Sans', ui-sans-serif, system-ui, sans-serif,
         'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol',
         'Noto Color Emoji';
 
@@ -27,11 +41,13 @@
     --color-popover: var(--popover);
     --color-popover-foreground: var(--popover-foreground);
 
-    --color-primary: var(--primary);
-    --color-primary-foreground: var(--primary-foreground);
-
-    --color-secondary: var(--secondary);
-    --color-secondary-foreground: var(--secondary-foreground);
+    /*
+      NOTE: --color-primary(-foreground) and --color-secondary(-foreground)
+      are intentionally NOT mapped here. Nuxt UI owns those names
+      (`bg-primary`, `bg-secondary`, ... resolve to the Nuxt theme via
+      `--ui-primary` / `--ui-secondary`). Subtrees built on the shadcn
+      components must render inside a `.shadcn` scope (below).
+    */
 
     --color-muted: var(--muted);
     --color-muted-foreground: var(--muted-foreground);
@@ -84,7 +100,7 @@
     body,
     html {
         --font-sans:
-            'Instrument Sans', ui-sans-serif, system-ui, sans-serif,
+            'Public Sans', ui-sans-serif, system-ui, sans-serif,
             'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol',
             'Noto Color Emoji';
     }
@@ -169,5 +185,21 @@
     }
     body {
         @apply bg-background text-foreground;
+    }
+}
+
+/*
+  Compat scope for shadcn-based subtrees. Components under `components/ui/*`
+  were built against `--color-primary` / `--color-secondary` meaning the
+  shadcn palette. Those names now belong to Nuxt UI globally, so shadcn
+  subtrees opt back into the previous meaning via this scope until
+  `components/ui/*` is removed.
+*/
+@layer base {
+    .shadcn {
+        --color-primary: var(--primary);
+        --color-primary-foreground: var(--primary-foreground);
+        --color-secondary: var(--secondary);
+        --color-secondary-foreground: var(--secondary-foreground);
     }
 }

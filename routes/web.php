@@ -4,6 +4,7 @@ use App\Http\Controllers\AccountController;
 use App\Http\Controllers\AccountSwitcherController;
 use App\Http\Controllers\AuditController;
 use App\Http\Controllers\ClientController;
+use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\InvitationController;
 use App\Http\Controllers\OnboardingController;
 use App\Http\Controllers\PlanController;
@@ -25,7 +26,7 @@ Route::match(['get', 'post'], 'register', function () {
 })->name('register');
 
 Route::middleware(['auth', 'verified'])->group(function () {
-    Route::inertia('dashboard', 'Dashboard')->name('dashboard');
+    Route::get('dashboard', [DashboardController::class, 'index'])->name('dashboard');
 
     Route::get('plans', [PlanController::class, 'index'])->name('plans.index');
     Route::post('plans', [PlanController::class, 'store'])->name('plans.store');
@@ -40,6 +41,7 @@ Route::middleware(['auth', 'verified'])->group(function () {
 
     Route::get('audit', [AuditController::class, 'index'])->name('audit.index');
 
+    Route::post('clients/bulk-destroy', [ClientController::class, 'bulkDestroy'])->name('clients.bulk-destroy');
     Route::resource('clients', ClientController::class);
 });
 

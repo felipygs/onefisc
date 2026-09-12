@@ -7,6 +7,7 @@ use App\Models\Client;
 use App\Services\PlanLimitService;
 use App\Support\CurrentAccount;
 use Illuminate\Http\RedirectResponse;
+use Illuminate\Http\Request;
 use Inertia\Inertia;
 use Inertia\Response;
 
@@ -84,6 +85,22 @@ class ClientController extends Controller
         $client->delete();
 
         return redirect()->route('clients.index')->with('status', 'Client removido.');
+    }
+
+    public function bulkDestroy(Request $request): RedirectResponse
+    {
+        $account = CurrentAccount::resolve();
+        abort_unless($account !== null && request()->user()?->can('operate-clients', $account), 403);
+
+        $validated = $request->validate([
+            'ids' => ['required', 'array', 'min:1'],
+            'ids.*' => ['integer'],
+        ]);
+
+        // The account global scope keeps ids from other Accounts untouched.
+        Client::query()->whereIn('id', $validated['ids'])->delete();
+
+        return redirect()->route('clients.index')->with('status', 'Clients removidos.');
     }
 
     protected function authorizeClient(Client $client): void

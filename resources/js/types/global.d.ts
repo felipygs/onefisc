@@ -1,5 +1,6 @@
 import type { Auth } from '@/types/auth';
 import type { PlanUsage, PlatformPermissions } from '@/types/plans';
+import type { ShellNotification, SwitchableAccount } from '@/types/shell';
 
 // Extend ImportMeta interface for Vite...
 declare module 'vite/client' {
@@ -28,6 +29,8 @@ declare module '@inertiajs/core' {
                 profile: string;
             } | null;
             isSwitching: boolean;
+            switchableAccounts: SwitchableAccount[] | null;
+            notifications: ShellNotification[] | null;
             [key: string]: unknown;
         };
     }

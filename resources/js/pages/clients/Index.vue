@@ -1,19 +1,23 @@
 <script setup lang="ts">
-import { Head, Link, router, usePage } from '@inertiajs/vue3';
-import { computed, ref } from 'vue';
+import type { TableColumn } from '@nuxt/ui';
+import type { Column, Row, Table } from '@tanstack/table-core';
+import { Link, router, usePage } from '@inertiajs/vue3';
+import { upperFirst } from 'scule';
+import { computed, h, ref, resolveComponent, useTemplateRef } from 'vue';
 import PlanLimitWarning from '@/components/PlanLimitWarning.vue';
-import { create, edit, index as clientsIndex, show } from '@/routes/clients';
+import {
+    bulkDestroy as bulkDestroyClients,
+    create,
+    destroy as destroyClient,
+    index as clientsIndex,
+    show,
+} from '@/routes/clients';
 
-defineOptions({
-    layout: {
-        breadcrumbs: [
-            {
-                title: 'Clients',
-                href: clientsIndex(),
-            },
-        ],
-    },
-});
+const UAvatar = resolveComponent('UAvatar');
+const UButton = resolveComponent('UButton');
+const UBadge = resolveComponent('UBadge');
+const UDropdownMenu = resolveComponent('UDropdownMenu');
+const UCheckbox = resolveComponent('UCheckbox');
 
 interface ClientRow {
     id: number;
@@ -66,8 +70,22 @@ const REGIME_OPTIONS = [
     { label: 'MEI', value: 'mei' },
 ];
 
+const table = useTemplateRef<{ tableApi: Table<ClientRow> }>('table');
+
 const search = ref('');
 const regimeFilter = ref('all');
+const rowSelection = ref({});
+const clientToDelete = ref<ClientRow | null>(null);
+const singleDeleteOpen = computed<boolean>({
+    get: () => clientToDelete.value !== null,
+    set: (value: boolean) => {
+        if (!value) {
+            clientToDelete.value = null;
+        }
+    },
+});
+const bulkConfirmOpen = ref(false);
+const deleting = ref(false);
 
 const page = usePage();
 
@@ -97,12 +115,14 @@ function formatCnpj(value: string): string {
     return `${digits.slice(0, 2)}.${digits.slice(2, 5)}.${digits.slice(5, 8)}/${digits.slice(8, 12)}-${digits.slice(12)}`;
 }
 
-function regimeLabel(regime: string): string {
-    return REGIME_LABELS[regime] ?? regime;
-}
-
-function regimeColor(regime: string): BadgeColor {
-    return REGIME_COLORS[regime] ?? 'neutral';
+function initials(name: string): string {
+    return name
+        .split(' ')
+        .filter(Boolean)
+        .slice(0, 2)
+        .map((part) => part[0])
+        .join('')
+        .toUpperCase();
 }
 
 // Local-only filter over the current server page (no backend change).
@@ -133,6 +153,193 @@ const filtered = computed<ClientRow[]>(() => {
     });
 });
 
+const selectedCount = computed(
+    () => table.value?.tableApi?.getFilteredSelectedRowModel().rows.length ?? 0,
+);
+const selectedIds = computed<number[]>(() =>
+    (table.value?.tableApi?.getFilteredSelectedRowModel().rows ?? []).map(
+        (row: Row<ClientRow>) => row.original.id,
+    ),
+);
+
+function copyClientId(row: Row<ClientRow>): void {
+    void navigator.clipboard.writeText(row.original.id.toString());
+    useToast().add({
+        title: 'Copiado',
+        description: 'Identificador do Client copiado.',
+    });
+}
+
+function confirmSingleDelete(row: Row<ClientRow>): void {
+    clientToDelete.value = row.original;
+}
+
+function deleteSingle(): void {
+    if (!clientToDelete.value) {
+        return;
+    }
+
+    deleting.value = true;
+    router.delete(destroyClient.url({ client: clientToDelete.value.id }), {
+        onFinish: () => {
+            deleting.value = false;
+            clientToDelete.value = null;
+            rowSelection.value = {};
+        },
+    });
+}
+
+function deleteSelected(): void {
+    if (selectedIds.value.length === 0) {
+        return;
+    }
+
+    deleting.value = true;
+    router.post(
+        bulkDestroyClients.url(),
+        { ids: selectedIds.value },
+        {
+            onFinish: () => {
+                deleting.value = false;
+                bulkConfirmOpen.value = false;
+                rowSelection.value = {};
+            },
+        },
+    );
+}
+
+function getRowItems(row: Row<ClientRow>): object[] {
+    return [
+        { type: 'label', label: 'Ações' },
+        {
+            label: 'Copiar identificador',
+            icon: 'i-lucide-copy',
+            onSelect: () => copyClientId(row),
+        },
+        { type: 'separator' },
+        {
+            label: 'Ver detalhes',
+            icon: 'i-lucide-list',
+            onSelect: () => router.visit(show.url({ client: row.original.id })),
+        },
+        { type: 'separator' },
+        {
+            label: 'Excluir client',
+            icon: 'i-lucide-trash',
+            color: 'error',
+            onSelect: () => confirmSingleDelete(row),
+        },
+    ];
+}
+
+const columns: TableColumn<ClientRow>[] = [
+    {
+        id: 'select',
+        header: ({ table: api }) =>
+            h(UCheckbox, {
+                modelValue: api.getIsSomePageRowsSelected()
+                    ? 'indeterminate'
+                    : api.getIsAllPageRowsSelected(),
+                'onUpdate:modelValue': (value: boolean | 'indeterminate') =>
+                    api.toggleAllPageRowsSelected(!!value),
+                ariaLabel: 'Selecionar todos',
+            }),
+        cell: ({ row }) =>
+            h(UCheckbox, {
+                modelValue: row.getIsSelected(),
+                'onUpdate:modelValue': (value: boolean | 'indeterminate') =>
+                    row.toggleSelected(!!value),
+                ariaLabel: 'Selecionar linha',
+            }),
+    },
+    {
+        accessorKey: 'id',
+        header: 'ID',
+    },
+    {
+        accessorKey: 'razao_social',
+        header: ({ column }) => {
+            const isSorted = column.getIsSorted();
+
+            return h(UButton, {
+                color: 'neutral',
+                variant: 'ghost',
+                label: 'Client',
+                icon: isSorted
+                    ? isSorted === 'asc'
+                        ? 'i-lucide-arrow-up-narrow-wide'
+                        : 'i-lucide-arrow-down-wide-narrow'
+                    : 'i-lucide-arrow-up-down',
+                class: '-mx-2.5',
+                onClick: () =>
+                    column.toggleSorting(column.getIsSorted() === 'asc'),
+            });
+        },
+        cell: ({ row }) =>
+            h('div', { class: 'flex items-center gap-3' }, [
+                h(UAvatar, {
+                    text: initials(row.original.razao_social),
+                    size: 'lg',
+                }),
+                h('div', undefined, [
+                    h(
+                        Link,
+                        {
+                            href: show.url({ client: row.original.id }),
+                            class: 'text-primary font-medium hover:underline',
+                        },
+                        () => row.original.razao_social,
+                    ),
+                    h(
+                        'p',
+                        { class: 'tabular-nums' },
+                        formatCnpj(row.original.cnpj),
+                    ),
+                ]),
+            ]),
+    },
+    {
+        accessorKey: 'regime',
+        header: 'Regime',
+        cell: ({ row }) => {
+            const regime = row.original.regime;
+            const color = REGIME_COLORS[regime] ?? 'neutral';
+
+            return h(
+                UBadge,
+                { class: 'capitalize', variant: 'subtle', color },
+                () => REGIME_LABELS[regime] ?? regime,
+            );
+        },
+    },
+    {
+        accessorKey: 'contador_responsavel',
+        header: 'Contador',
+    },
+    {
+        id: 'actions',
+        cell: ({ row }) =>
+            h(
+                'div',
+                { class: 'text-right' },
+                h(
+                    UDropdownMenu,
+                    {
+                        content: { align: 'end' },
+                        items: getRowItems(row),
+                    },
+                    () =>
+                        h(UButton, {
+                            icon: 'i-lucide-ellipsis-vertical',
+                            color: 'neutral',
+                            variant: 'ghost',
+                            class: 'ml-auto',
+                        }),
+                ),
+            ),
+    },
+];
+
 function goToPage(nextPage: number): void {
     router.get(
         clientsIndex.url(),
@@ -145,129 +352,124 @@ function goToPage(nextPage: number): void {
 <template>
     <Head title="Clients" />
 
-    <div class="flex flex-col gap-6 p-4">
-        <PlanLimitWarning />
+    <UDashboardPanel id="clients">
+        <template #header>
+            <UDashboardNavbar title="Clients">
+                <template #leading>
+                    <UDashboardSidebarCollapse />
+                </template>
 
-        <div class="flex items-center justify-between gap-4">
-            <div>
-                <h1 class="text-xl font-semibold">Clients</h1>
-                <p class="text-muted text-sm">
-                    Empresas atendidas pelo escritório.
-                </p>
-            </div>
-            <UButton
-                v-if="canOperate"
-                :to="create.url()"
-                data-test="client-new"
-            >
-                Novo client
-            </UButton>
-        </div>
+                <template #right>
+                    <UButton
+                        v-if="canOperate"
+                        :to="create.url()"
+                        icon="i-lucide-plus"
+                        data-test="client-new"
+                    >
+                        Novo client
+                    </UButton>
+                </template>
+            </UDashboardNavbar>
+        </template>
 
-        <UCard>
-            <div class="mb-4 flex flex-col gap-3 sm:flex-row">
+        <template #body>
+            <PlanLimitWarning />
+
+            <div class="flex flex-wrap items-center justify-between gap-1.5">
                 <UInput
                     v-model="search"
+                    class="max-w-sm"
+                    icon="i-lucide-search"
                     placeholder="Buscar por CNPJ, razão ou contador…"
-                    class="w-full sm:max-w-sm"
                     data-test="client-search"
                 />
-                <USelect
-                    v-model="regimeFilter"
-                    :items="REGIME_OPTIONS"
-                    class="w-full sm:w-56"
-                    data-test="client-regime-filter"
-                />
+
+                <div class="flex flex-wrap items-center gap-1.5">
+                    <UButton
+                        v-if="selectedCount > 0"
+                        label="Excluir"
+                        color="error"
+                        variant="subtle"
+                        icon="i-lucide-trash"
+                        data-test="client-bulk-delete"
+                        @click="bulkConfirmOpen = true"
+                    >
+                        <template #trailing>
+                            <UKbd>{{ selectedCount }}</UKbd>
+                        </template>
+                    </UButton>
+
+                    <USelect
+                        v-model="regimeFilter"
+                        :items="REGIME_OPTIONS"
+                        :ui="{
+                            trailingIcon:
+                                'group-data-[state=open]:rotate-180 transition-transform duration-200',
+                        }"
+                        placeholder="Filtrar regime"
+                        class="min-w-28"
+                        data-test="client-regime-filter"
+                    />
+                    <UDropdownMenu
+                        :items="
+                            table?.tableApi
+                                ?.getAllColumns()
+                                .filter((column: Column<ClientRow>) =>
+                                    column.getCanHide(),
+                                )
+                                .map((column: Column<ClientRow>) => ({
+                                    label: upperFirst(column.id),
+                                    type: 'checkbox' as const,
+                                    checked: column.getIsVisible(),
+                                    onUpdateChecked(checked: boolean) {
+                                        table?.tableApi
+                                            ?.getColumn(column.id)
+                                            ?.toggleVisibility(!!checked);
+                                    },
+                                    onSelect(e?: Event) {
+                                        e?.preventDefault();
+                                    },
+                                }))
+                        "
+                        :content="{ align: 'end' }"
+                    >
+                        <UButton
+                            label="Exibir"
+                            color="neutral"
+                            variant="outline"
+                            trailing-icon="i-lucide-settings-2"
+                        />
+                    </UDropdownMenu>
+                </div>
             </div>
+
+            <UTable
+                ref="table"
+                v-model:row-selection="rowSelection"
+                class="shrink-0"
+                :data="filtered"
+                :columns="columns"
+                :ui="{
+                    base: 'table-fixed border-separate border-spacing-0',
+                    thead: '[&>tr]:bg-elevated/50 [&>tr]:after:content-none',
+                    tbody: '[&>tr]:last:[&>td]:border-b-0',
+                    th: 'py-2 first:rounded-l-lg last:rounded-r-lg border-y border-default first:border-l last:border-r',
+                    td: 'border-b border-default',
+                    separator: 'h-0',
+                }"
+                data-test="client-table"
+            />
 
             <div
-                v-if="filtered.length === 0"
-                class="text-muted py-8 text-center text-sm"
-                data-test="client-empty"
+                class="border-default mt-auto flex items-center justify-between gap-3 border-t pt-4"
             >
-                Nenhum client encontrado.
-            </div>
+                <div class="text-muted text-sm">
+                    {{ selectedCount }} de {{ filtered.length }} selecionado(s)
+                    nesta página.
+                </div>
 
-            <div v-else class="overflow-x-auto">
-                <table class="w-full text-left text-sm">
-                    <thead>
-                        <tr
-                            class="border-default text-muted border-b text-xs uppercase"
-                        >
-                            <th class="px-2 py-2 font-medium">CNPJ</th>
-                            <th class="px-2 py-2 font-medium">Razão social</th>
-                            <th class="px-2 py-2 font-medium">Regime</th>
-                            <th class="px-2 py-2 font-medium">Contador</th>
-                            <th class="px-2 py-2 font-medium">Monitoramento</th>
-                            <th class="px-2 py-2 text-right font-medium">
-                                Ações
-                            </th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <tr
-                            v-for="client in filtered"
-                            :key="client.id"
-                            class="border-default border-b last:border-0"
-                            :data-test="`client-row-${client.id}`"
-                        >
-                            <td
-                                class="px-2 py-3 whitespace-nowrap tabular-nums"
-                            >
-                                {{ formatCnpj(client.cnpj) }}
-                            </td>
-                            <td class="px-2 py-3">
-                                <Link
-                                    :href="show.url({ client: client.id })"
-                                    class="text-primary hover:underline"
-                                    :data-test="`client-open-${client.id}`"
-                                >
-                                    {{ client.razao_social }}
-                                </Link>
-                            </td>
-                            <td class="px-2 py-3">
-                                <UBadge
-                                    :color="regimeColor(client.regime)"
-                                    variant="soft"
-                                >
-                                    {{ regimeLabel(client.regime) }}
-                                </UBadge>
-                            </td>
-                            <td class="px-2 py-3">
-                                {{ client.contador_responsavel }}
-                            </td>
-                            <td
-                                class="text-muted px-2 py-3"
-                                data-test="client-monitoring-none"
-                            >
-                                —
-                            </td>
-                            <td class="px-2 py-3 text-right whitespace-nowrap">
-                                <UButton
-                                    variant="ghost"
-                                    size="xs"
-                                    :to="show.url({ client: client.id })"
-                                    :data-test="`client-show-${client.id}`"
-                                >
-                                    Ver
-                                </UButton>
-                                <UButton
-                                    v-if="canOperate"
-                                    variant="ghost"
-                                    size="xs"
-                                    :to="edit.url({ client: client.id })"
-                                    :data-test="`client-edit-${client.id}`"
-                                >
-                                    Editar
-                                </UButton>
-                            </td>
-                        </tr>
-                    </tbody>
-                </table>
-            </div>
-
-            <div v-if="clients.last_page > 1" class="mt-4 flex justify-center">
                 <UPagination
+                    v-if="clients.last_page > 1"
                     :page="clients.current_page"
                     :items-per-page="clients.per_page"
                     :total="clients.total"
@@ -275,6 +477,68 @@ function goToPage(nextPage: number): void {
                     @update:page="goToPage"
                 />
             </div>
-        </UCard>
-    </div>
+
+            <UModal
+                v-model:open="bulkConfirmOpen"
+                title="Excluir clients selecionados"
+                description="Esta ação não pode ser desfeita."
+            >
+                <template #body>
+                    <p class="text-sm">
+                        Excluir {{ selectedCount }} client(s) da carteira desta
+                        Account?
+                    </p>
+                </template>
+
+                <template #footer>
+                    <div class="flex justify-end gap-2">
+                        <UButton
+                            color="neutral"
+                            variant="ghost"
+                            label="Cancelar"
+                            @click="bulkConfirmOpen = false"
+                        />
+                        <UButton
+                            color="error"
+                            label="Excluir"
+                            :loading="deleting"
+                            data-test="client-bulk-confirm"
+                            @click="deleteSelected"
+                        />
+                    </div>
+                </template>
+            </UModal>
+
+            <UModal
+                v-model:open="singleDeleteOpen"
+                title="Excluir client"
+                description="Esta ação não pode ser desfeita."
+            >
+                <template #body>
+                    <p class="text-sm">
+                        Excluir {{ clientToDelete?.razao_social }} da carteira
+                        desta Account?
+                    </p>
+                </template>
+
+                <template #footer>
+                    <div class="flex justify-end gap-2">
+                        <UButton
+                            color="neutral"
+                            variant="ghost"
+                            label="Cancelar"
+                            @click="clientToDelete = null"
+                        />
+                        <UButton
+                            color="error"
+                            label="Excluir"
+                            :loading="deleting"
+                            data-test="client-delete-confirm"
+                            @click="deleteSingle"
+                        />
+                    </div>
+                </template>
+            </UModal>
+        </template>
+    </UDashboardPanel>
 </template>

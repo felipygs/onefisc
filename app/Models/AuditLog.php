@@ -34,6 +34,17 @@ class AuditLog extends Model
         return $this->belongsTo(User::class, 'actor_user_id');
     }
 
+    public function senderName(): string
+    {
+        $actor = $this->actor;
+
+        if (! $actor instanceof User) {
+            return 'Sistema';
+        }
+
+        return $actor->name;
+    }
+
     /**
      * @return BelongsTo<Account, $this>
      */

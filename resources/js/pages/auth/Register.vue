@@ -1,12 +1,7 @@
 <script setup lang="ts">
-import { Form, Head } from '@inertiajs/vue3';
-import InputError from '@/components/InputError.vue';
+import { Head, useForm } from '@inertiajs/vue3';
 import PasswordInput from '@/components/PasswordInput.vue';
 import TextLink from '@/components/TextLink.vue';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Spinner } from '@/components/ui/spinner';
 import { login, register } from '@/routes';
 
 defineProps<{
@@ -19,88 +14,113 @@ defineOptions({
         description: 'Enter your details below to create your account',
     },
 });
+
+const form = useForm({
+    name: '',
+    email: '',
+    password: '',
+    password_confirmation: '',
+});
+
+function onSubmit(): void {
+    form.post(register.url(), {
+        onSuccess: () => form.reset('password', 'password_confirmation'),
+    });
+}
 </script>
 
 <template>
     <Head title="Register" />
 
-    <Form
-        v-bind="register.form()"
-        :reset-on-success="['password', 'password_confirmation']"
-        v-slot="{ errors, processing }"
-        class="flex flex-col gap-6"
-    >
+    <UForm :state="form" class="flex flex-col gap-6" @submit="onSubmit">
         <div class="grid gap-6">
-            <div class="grid gap-2">
-                <Label for="name">Name</Label>
-                <Input
-                    id="name"
+            <UFormField
+                label="Name"
+                name="name"
+                :error="form.errors.name"
+                required
+            >
+                <UInput
+                    v-model="form.name"
                     type="text"
+                    name="name"
                     required
                     autofocus
                     :tabindex="1"
                     autocomplete="name"
-                    name="name"
                     placeholder="Full name"
+                    class="w-full"
                 />
-                <InputError :message="errors.name" />
-            </div>
+            </UFormField>
 
-            <div class="grid gap-2">
-                <Label for="email">Email address</Label>
-                <Input
-                    id="email"
+            <UFormField
+                label="Email address"
+                name="email"
+                :error="form.errors.email"
+                required
+            >
+                <UInput
+                    v-model="form.email"
                     type="email"
+                    name="email"
                     required
                     :tabindex="2"
                     autocomplete="email"
-                    name="email"
                     placeholder="email@example.com"
+                    class="w-full"
                 />
-                <InputError :message="errors.email" />
-            </div>
+            </UFormField>
 
-            <div class="grid gap-2">
-                <Label for="password">Password</Label>
+            <UFormField
+                label="Password"
+                name="password"
+                :error="form.errors.password"
+                required
+            >
                 <PasswordInput
-                    id="password"
+                    v-model="form.password"
+                    name="password"
                     required
                     :tabindex="3"
                     autocomplete="new-password"
-                    name="password"
                     placeholder="Password"
                     :passwordrules="passwordRules"
+                    class="w-full"
                 />
-                <InputError :message="errors.password" />
-            </div>
+            </UFormField>
 
-            <div class="grid gap-2">
-                <Label for="password_confirmation">Confirm password</Label>
+            <UFormField
+                label="Confirm password"
+                name="password_confirmation"
+                :error="form.errors.password_confirmation"
+                required
+            >
                 <PasswordInput
-                    id="password_confirmation"
+                    v-model="form.password_confirmation"
+                    name="password_confirmation"
                     required
                     :tabindex="4"
                     autocomplete="new-password"
-                    name="password_confirmation"
                     placeholder="Confirm password"
                     :passwordrules="passwordRules"
+                    class="w-full"
                 />
-                <InputError :message="errors.password_confirmation" />
-            </div>
+            </UFormField>
 
-            <Button
+            <UButton
                 type="submit"
-                class="mt-2 w-full"
-                tabindex="5"
-                :disabled="processing"
+                block
+                class="mt-2"
+                :tabindex="5"
+                :loading="form.processing"
+                :disabled="form.processing"
                 data-test="register-user-button"
             >
-                <Spinner v-if="processing" />
                 Create account
-            </Button>
+            </UButton>
         </div>
 
-        <div class="text-muted-foreground text-center text-sm">
+        <div class="text-muted text-center text-sm">
             Already have an account?
             <TextLink
                 :href="login()"
@@ -109,5 +129,5 @@ defineOptions({
                 >Log in</TextLink
             >
         </div>
-    </Form>
+    </UForm>
 </template>

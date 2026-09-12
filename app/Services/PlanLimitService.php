@@ -41,7 +41,7 @@ class PlanLimitService
                 'max' => $plan?->monthly_query_volume,
                 'remaining' => $plan ? max(0, $plan->monthly_query_volume - $volumeUsed) : null,
             ],
-            'modules' => $plan?->modules ?? [],
+            'modules' => $plan->modules ?? [],
         ];
     }
 

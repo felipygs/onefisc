@@ -1,5 +1,8 @@
 <?php
 
+use App\Http\Controllers\InvitationController;
+use App\Http\Controllers\Settings\MembersController;
+use App\Http\Controllers\Settings\NotificationController;
 use App\Http\Controllers\Settings\ProfileController;
 use App\Http\Controllers\Settings\SecurityController;
 use Illuminate\Auth\Middleware\RequirePassword;
@@ -24,6 +27,13 @@ Route::middleware(['auth', 'verified'])->group(function () {
         ->name('user-password.update');
 
     Route::inertia('settings/appearance', 'settings/Appearance')->name('appearance.edit');
+
+    Route::get('settings/members', [MembersController::class, 'index'])->name('members.index');
+
+    Route::get('settings/notifications', [NotificationController::class, 'edit'])->name('notifications.edit');
+    Route::put('settings/notifications', [NotificationController::class, 'update'])->name('notifications.update');
+
+    Route::post('invitations', [InvitationController::class, 'store'])->name('invitations.store');
 });
 
 Route::get('.well-known/passkey-endpoints', function () {

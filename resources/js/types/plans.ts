@@ -18,7 +18,7 @@ export type PlanUsage = {
 
 export type PlatformPermissions = {
     'manage-users': boolean;
-    'manage-clients': boolean;
+    'operate-clients': boolean;
     'manage-platform': boolean;
     operate: boolean;
 };
