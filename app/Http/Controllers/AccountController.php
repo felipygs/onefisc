@@ -34,6 +34,8 @@ class AccountController extends Controller
      */
     public function store(Request $request, AccountProvisioningService $provisioning): RedirectResponse
     {
+        Gate::authorize('manage-platform');
+
         $validated = $request->validate([
             'account_name' => ['required', 'string', 'max:255'],
             'admin_name' => ['required', 'string', 'max:255'],

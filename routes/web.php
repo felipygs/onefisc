@@ -1,7 +1,9 @@
 <?php
 
+use App\Http\Controllers\AccountController;
 use App\Http\Controllers\InvitationController;
 use App\Http\Controllers\OnboardingController;
+use App\Http\Controllers\PlanController;
 use App\Models\Account;
 use Illuminate\Support\Facades\Route;
 
@@ -21,6 +23,13 @@ Route::match(['get', 'post'], 'register', function () {
 
 Route::middleware(['auth', 'verified'])->group(function () {
     Route::inertia('dashboard', 'Dashboard')->name('dashboard');
+
+    Route::get('plans', [PlanController::class, 'index'])->name('plans.index');
+    Route::post('plans', [PlanController::class, 'store'])->name('plans.store');
+    Route::get('plans/{plan}/edit', [PlanController::class, 'edit'])->name('plans.edit');
+    Route::match(['put', 'patch'], 'plans/{plan}', [PlanController::class, 'update'])->name('plans.update');
+
+    Route::patch('accounts/{account}/plan', [AccountController::class, 'updatePlan'])->name('accounts.plan.update');
 });
 
 require __DIR__.'/settings.php';
