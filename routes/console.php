@@ -9,3 +9,4 @@ Artisan::command('inspire', function () {
 })->purpose('Display an inspiring quote');
 
 Schedule::command('monitoring:run')->daily();
+Schedule::command('fiscal:sync-dispatch')->everyMinute();

@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Concerns\BelongsToAccountThroughClient;
+use Carbon\CarbonInterface;
 use Database\Factories\FiscalSyncSubscriptionFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -15,8 +16,8 @@ use Illuminate\Support\Carbon;
  * @property int $client_id
  * @property string $family
  * @property string $environment
- * @property Carbon|null $next_run_at
- * @property Carbon|null $blocked_until
+ * @property CarbonInterface|null $next_run_at
+ * @property CarbonInterface|null $blocked_until
  * @property Carbon|null $created_at
  * @property Carbon|null $updated_at
  */
