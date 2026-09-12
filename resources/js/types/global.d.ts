@@ -22,6 +22,12 @@ declare module '@inertiajs/core' {
             sidebarOpen: boolean;
             planUsage: PlanUsage | null;
             permissions: PlatformPermissions;
+            currentAccount: {
+                id: number;
+                name: string;
+                profile: string;
+            } | null;
+            isSwitching: boolean;
             [key: string]: unknown;
         };
     }
