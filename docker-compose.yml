@@ -1,0 +1,66 @@
+name: oniscan-app
+
+services:
+    postgres:
+        image: 'postgres:18-alpine'
+        restart: unless-stopped
+        ports:
+            - '127.0.0.1:5432:5432'
+        environment:
+            POSTGRES_DB: '${DB_DATABASE:-laravel}'
+            POSTGRES_USER: '${DB_USERNAME:-laravel}'
+            POSTGRES_PASSWORD: '${DB_PASSWORD:-password}'
+        volumes:
+            - 'pgsql:/var/lib/postgresql'
+        networks:
+            - app
+        healthcheck:
+            test: ['CMD-SHELL', 'pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}']
+            interval: 5s
+            timeout: 5s
+            retries: 5
+
+    redis:
+        image: 'redis:7-alpine'
+        restart: unless-stopped
+        ports:
+            - '127.0.0.1:6379:6379'
+        volumes:
+            - 'redis:/data'
+        networks:
+            - app
+        healthcheck:
+            test: ['CMD', 'redis-cli', 'ping']
+            interval: 5s
+            timeout: 5s
+            retries: 5
+
+    # NATS com JetStream (-js). Sem TLS: suficiente para dev local.
+    nats:
+        image: 'nats:2.10-alpine'
+        restart: unless-stopped
+        command: ['-js', '-m', '8222']
+        ports:
+            - '127.0.0.1:4222:4222'
+            - '127.0.0.1:8222:8222'
+        volumes:
+            - 'nats:/data'
+        networks:
+            - app
+        healthcheck:
+            test: ['CMD-SHELL', 'wget -qO- http://127.0.0.1:8222/healthz >/dev/null']
+            interval: 5s
+            timeout: 5s
+            retries: 10
+
+networks:
+    app:
+        driver: bridge
+
+volumes:
+    pgsql:
+        driver: local
+    redis:
+        driver: local
+    nats:
+        driver: local

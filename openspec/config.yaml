@@ -1,0 +1,48 @@
+schema: spec-driven
+
+# Project context (optional)
+# This is shown to AI when creating artifacts.
+context: |
+  Tech stack: Laravel 13 (PHP 8.3), Vue 3 + Inertia.js v3, Tailwind CSS v4, Vite
+  Tests: Pest (PHP), vue-tsc for types. Lint: Pint (PHP), vp check (JS/Vue)
+  Conventions: conventional commits, Laravel Wayfinder for routes, Nuxt UI components
+  Workflow: OpenSpec owns WHAT+WHY (proposal/specs/design/tasks, Delta/Archive); Superpowers owns HOW WELL (brainstorming, TDD, review). Routing lives in AGENTS.md ("Spec-Driven Workflow").
+  Glossary: CONTEXT.md is canonical (Account, Plan, Client, super_admin, Onboarding). Use its terms in every artifact.
+  Homes: every Superpowers output lives inside the OpenSpec change folder `openspec/changes/<name>/`. `brainstorm.md` (pre-propose discovery) and `plan.md` (execution detail) are change-scoped files, never parallel planners. No `docs/superpowers/specs/` outside a change; the spec library lives only in `openspec/specs/` after archive.
+
+# Per-artifact rules
+rules:
+  proposal:
+    - Always include Out-of-Scope: what this change explicitly does NOT do
+    - Mark breaking changes with **BREAKING**
+    - Use canonical glossary terms from CONTEXT.md
+  specs:
+    - One spec file per capability listed in the proposal
+    - Every requirement has at least one WHEN/THEN scenario
+    - Describe observable behavior only, no class names, libraries, or implementation steps
+  design:
+    - Record key technical choices with rationale and alternatives considered
+    - Record risks as [Risk] → Mitigation
+  tasks:
+    - tasks.md is the scope contract: one sentence per task, checkbox format `- [ ] X.Y ...`
+    - Each task states how to verify (test, command, observable behavior)
+    - No implementation detail in tasks; execution detail goes to plan.md inside the same change folder, referencing task IDs
+  brainstorm:
+    - brainstorm.md lives at openspec/changes/<name>/brainstorm.md, written before proposal.md
+    - It records discovery only (questions, options, decisions); the official spec is born in openspec-propose
+  plan:
+    - plan.md lives at openspec/changes/<name>/plan.md, created only when execution needs red/green steps, exact commands, file paths
+    - It references tasks.md IDs; never duplicates or contradicts them
+
+# Per-operation guidance
+operations:
+  apply:
+    guidance:
+      - ALWAYS follow TDD: failing test first, then implementation; delete code written before its test
+      - Use systematic-debugging on failures; verification-before-completion before claiming done
+      - Run requesting-code-review before each commit; keep commits focused per task batch
+  archive:
+    guidance:
+      - ALWAYS archive as the last action; never leave a change un-archived
+      - Sync delta specs into openspec/specs/; lift new gotchas into these rules
+      - Update CONTEXT.md/ADRs when terms or decisions crystallize
