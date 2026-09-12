@@ -57,6 +57,7 @@ class ClientController extends Controller
 
         return Inertia::render('clients/Show', [
             'client' => $client,
+            'certificate' => $this->certificateState($client),
         ]);
     }
 
@@ -110,5 +111,33 @@ class ClientController extends Controller
 
         // Global scope already isolates by account; fail closed if mismatch.
         abort_if((int) $client->account_id !== (int) $account->id, 404);
+    }
+
+    /**
+     * Read-only certificate validity for the Client rail.
+     *
+     * Never includes secrets: only status + expires_at.
+     *
+     * @return array{status: string, expires_at?: string}
+     */
+    protected function certificateState(Client $client): array
+    {
+        $credential = $client->credential;
+
+        if ($credential === null || blank($credential->pfx_data) || $credential->expires_at === null) {
+            return ['status' => 'missing'];
+        }
+
+        $expiresAt = $credential->expires_at;
+
+        if ($expiresAt->lessThanOrEqualTo(now())) {
+            return ['status' => 'expired'];
+        }
+
+        if ($expiresAt->lessThanOrEqualTo(now()->addDays(30))) {
+            return ['status' => 'expiring', 'expires_at' => $expiresAt->toIso8601String()];
+        }
+
+        return ['status' => 'valid', 'expires_at' => $expiresAt->toIso8601String()];
     }
 }
