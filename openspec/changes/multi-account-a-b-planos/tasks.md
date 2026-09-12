@@ -14,7 +14,7 @@
 
 - [x] 3.1 Implementar onboarding (base vazia cria Account A + super_admin) e bloqueio do `/register` com base populada, e verificar com testes dos dois cenários
 - [x] 3.2 Implementar convites (nome, e-mail, papel, expiração 7 dias, senha no aceite) e criação de Account pela A com admin inicial, e verificar com testes de aceite válido/expirado
-- [ ] 3.3 Criar páginas Inertia de onboarding e aceite de convite com Nuxt UI, e verificar com `npm run build` + smoke manual
+- [x] 3.3 Criar páginas Inertia de onboarding e aceite de convite com Nuxt UI, e verificar com `npm run build` + smoke manual
 
 ## 4. Plans e limites
 

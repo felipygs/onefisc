@@ -2,14 +2,32 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\Invitation;
 use App\Services\InvitationService;
 use App\Support\CurrentAccount;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rules\Password;
+use Inertia\Inertia;
+use Inertia\Response;
 
 class InvitationController extends Controller
 {
+    /**
+     * Show the invitation accept form.
+     */
+    public function show(InvitationService $invitations, string $token): Response
+    {
+        $invitation = $invitations->findByToken($token);
+
+        return Inertia::render('invitations/Accept', [
+            'token' => $token,
+            'name' => $invitation?->name,
+            'email' => $invitation?->email,
+            'expired' => ! $invitation instanceof Invitation,
+        ]);
+    }
+
     /**
      * Invite a user to the current account.
      */

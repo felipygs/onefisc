@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\InvitationController;
 use App\Http\Controllers\OnboardingController;
 use App\Models\Account;
 use Illuminate\Support\Facades\Route;
@@ -8,6 +9,9 @@ Route::inertia('/', 'Welcome')->name('home');
 
 Route::get('onboarding', [OnboardingController::class, 'create'])->name('onboarding');
 Route::post('onboarding', [OnboardingController::class, 'store'])->name('onboarding.store');
+
+Route::get('invitations/accept/{token}', [InvitationController::class, 'show'])->name('invitations.accept');
+Route::post('invitations/accept/{token}', [InvitationController::class, 'accept'])->name('invitations.accept.store');
 
 Route::match(['get', 'post'], 'register', function () {
     abort_if(Account::exists(), 403, 'O registro público está fechado. Solicite um convite.');

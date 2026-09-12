@@ -13,6 +13,8 @@ use Illuminate\Validation\ValidationException;
 
 class InvitationService
 {
+    public function __construct(protected PlanLimitService $limits) {}
+
     /**
      * Create an invitation: random 32-byte token, sha256 hash stored, raw token only in the link.
      *
@@ -20,6 +22,8 @@ class InvitationService
      */
     public function invite(Account $account, string $name, string $email, string $role): array
     {
+        $this->limits->ensureUserCapacity($account);
+
         $token = bin2hex(random_bytes(32));
 
         $invitation = Invitation::create([
@@ -37,15 +41,10 @@ class InvitationService
     }
 
     /**
-     * Accept an invitation: creates the user with the invitation role/account, marks accepted, logs in.
+     * Find a pending, unexpired invitation by raw token.
      */
-    public function accept(string $token, string $password, string $passwordConfirmation): User
+    public function findByToken(string $token): ?Invitation
     {
-        $validated = Validator::make(
-            ['password' => $password, 'password_confirmation' => $passwordConfirmation],
-            ['password' => ['required', 'string', 'min:8', 'confirmed']]
-        )->validate();
-
         $invitation = Invitation::query()
             ->withoutGlobalScope('account')
             ->where('token_hash', hash('sha256', $token))
@@ -57,6 +56,25 @@ class InvitationService
             || $invitation->expires_at->isPast();
 
         if ($expired) {
+            return null;
+        }
+
+        return $invitation;
+    }
+
+    /**
+     * Accept an invitation: creates the user with the invitation role/account, marks accepted, logs in.
+     */
+    public function accept(string $token, string $password, string $passwordConfirmation): User
+    {
+        $validated = Validator::make(
+            ['password' => $password, 'password_confirmation' => $passwordConfirmation],
+            ['password' => ['required', 'string', 'min:8', 'confirmed']]
+        )->validate();
+
+        $invitation = $this->findByToken($token);
+
+        if (! $invitation instanceof Invitation) {
             throw ValidationException::withMessages(['token' => 'Este convite é inválido ou expirou.']);
         }
 
@@ -67,6 +85,9 @@ class InvitationService
             if (User::query()->where('email', $invitation->email)->exists()) {
                 throw ValidationException::withMessages(['email' => 'Este e-mail já está em uso.']);
             }
+
+            $account = Account::query()->withoutGlobalScopes()->findOrFail($invitation->account_id);
+            app(PlanLimitService::class)->ensureUserCapacity($account);
 
             $user = new User([
                 'name' => $invitation->name,

@@ -3,7 +3,12 @@
 namespace App\Providers;
 
 use App\Models\Account;
+use App\Models\Client;
+use App\Models\Invitation;
+use App\Models\MonitoringCheck;
+use App\Models\Plan;
 use App\Models\User;
+use App\Observers\AuditObserver;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\Date;
 use Illuminate\Support\Facades\DB;
