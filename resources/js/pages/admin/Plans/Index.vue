@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { Head } from '@inertiajs/vue3';
+import PlanLimitWarning from '@/components/PlanLimitWarning.vue';
 import { edit, index as plansIndex } from '@/routes/plans';
 
 defineOptions({
@@ -40,6 +41,7 @@ function formatPrice(cents: number): string {
     <Head title="Plans" />
 
     <div class="flex flex-col gap-6 p-4">
+        <PlanLimitWarning />
         <div class="flex items-center justify-between">
             <div>
                 <h1 class="text-xl font-semibold">Catálogo de Plans</h1>

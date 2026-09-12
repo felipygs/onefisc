@@ -2,6 +2,7 @@
 
 namespace App\Http\Middleware;
 
+use App\Services\PlanLimitService;
 use App\Support\CurrentAccount;
 use Illuminate\Http\Request;
 use Inertia\Middleware;
@@ -65,6 +66,15 @@ class HandleInertiaRequests extends Middleware
                 ];
             },
             'sidebarOpen' => ! $request->hasCookie('sidebar_state') || $request->cookie('sidebar_state') === 'true',
+            'planUsage' => function () {
+                $account = CurrentAccount::resolve();
+
+                if (! $account) {
+                    return null;
+                }
+
+                return app(PlanLimitService::class)->usage($account);
+            },
         ];
     }
 }
