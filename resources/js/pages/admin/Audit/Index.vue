@@ -1,12 +1,8 @@
 <script setup lang="ts">
-import { Head, router, usePage } from '@inertiajs/vue3';
+import { Head, router } from '@inertiajs/vue3';
 import { computed, ref } from 'vue';
 import PlanLimitWarning from '@/components/PlanLimitWarning.vue';
-
-// NEEDS_CONTEXT: AuditController@index exists (props `logs` + `filters`,
-// query params `account_id` / `actor_id` / `action`) but no audit route is
-// registered, so there is no Wayfinder helper yet. Navigation below reuses
-// the current page path instead of hardcoding a URL or inventing a helper.
+import { index as auditIndex } from '@/routes/audit';
 
 interface AuditActor {
     id: number;
@@ -50,9 +46,6 @@ const props = defineProps<{
     logs: LogsPaginator;
     filters: AuditFilters;
 }>();
-
-const page = usePage();
-const basePath = computed(() => page.url.split('?')[0]);
 
 // Exact action strings emitted by the backend (AuditObserver table events +
 // manual records in AccountController/AccountSwitcherController/InvitationController).
@@ -169,7 +162,7 @@ const dirty = computed(
 
 function applyFilters(): void {
     router.get(
-        basePath.value,
+        auditIndex.url(),
         {
             account_id: accountFilter.value.trim() || undefined,
             actor_id: actorFilter.value.trim() || undefined,
@@ -183,12 +176,12 @@ function clearFilters(): void {
     accountFilter.value = '';
     actorFilter.value = '';
     actionFilter.value = '';
-    router.get(basePath.value, {}, { preserveScroll: true });
+    router.get(auditIndex.url(), {}, { preserveScroll: true });
 }
 
 function goToPage(nextPage: number): void {
     router.get(
-        basePath.value,
+        auditIndex.url(),
         {
             account_id: accountFilter.value.trim() || undefined,
             actor_id: actorFilter.value.trim() || undefined,

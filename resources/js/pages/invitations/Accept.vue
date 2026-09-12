@@ -16,7 +16,12 @@ const props = defineProps<{
     expired: boolean;
 }>();
 
-const form = useForm({
+const form = useForm<{
+    password: string;
+    password_confirmation: string;
+    token?: string;
+    email?: string;
+}>({
     password: '',
     password_confirmation: '',
 });

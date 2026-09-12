@@ -2,11 +2,7 @@
 import { Head, router, usePage } from '@inertiajs/vue3';
 import { computed, ref } from 'vue';
 import PlanLimitWarning from '@/components/PlanLimitWarning.vue';
-import {
-    destroy,
-    edit,
-    index as clientsIndex,
-} from '@/routes/clients';
+import { destroy, edit, index as clientsIndex } from '@/routes/clients';
 
 defineOptions({
     layout: {
@@ -168,11 +164,7 @@ function onDelete() {
             </div>
         </div>
 
-        <UTabs
-            v-model="activeTab"
-            :items="TABS"
-            data-test="client-tabs"
-        />
+        <UTabs v-model="activeTab" :items="TABS" data-test="client-tabs" />
 
         <UCard v-if="activeTab === 'dados'" data-test="client-tab-dados">
             <dl class="grid gap-4 sm:grid-cols-2">
@@ -229,7 +221,10 @@ function onDelete() {
             </p>
         </UCard>
 
-        <UCard v-if="activeTab === 'historico'" data-test="client-tab-historico">
+        <UCard
+            v-if="activeTab === 'historico'"
+            data-test="client-tab-historico"
+        >
             <UTimeline :items="timelineItems" />
         </UCard>
     </div>

@@ -40,9 +40,7 @@ const exceeded = computed<string[]>(() => {
     }
 
     if (isAtLimit(usage.volume.used, usage.volume.max)) {
-        hits.push(
-            `volume mensal (${usage.volume.used}/${usage.volume.max})`,
-        );
+        hits.push(`volume mensal (${usage.volume.used}/${usage.volume.max})`);
     }
 
     return hits;

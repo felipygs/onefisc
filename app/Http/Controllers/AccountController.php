@@ -30,6 +30,7 @@ class AccountController extends Controller
 
         return Inertia::render('admin/Accounts/Create');
     }
+
     /**
      * Create an account B with its initial admin invitation (platform only).
      */

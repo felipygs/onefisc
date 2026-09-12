@@ -2,12 +2,7 @@
 import { Head, Link, router, usePage } from '@inertiajs/vue3';
 import { computed, ref } from 'vue';
 import PlanLimitWarning from '@/components/PlanLimitWarning.vue';
-import {
-    create,
-    edit,
-    index as clientsIndex,
-    show,
-} from '@/routes/clients';
+import { create, edit, index as clientsIndex, show } from '@/routes/clients';
 
 defineOptions({
     layout: {
@@ -216,7 +211,9 @@ function goToPage(nextPage: number): void {
                             class="border-default border-b last:border-0"
                             :data-test="`client-row-${client.id}`"
                         >
-                            <td class="px-2 py-3 whitespace-nowrap tabular-nums">
+                            <td
+                                class="px-2 py-3 whitespace-nowrap tabular-nums"
+                            >
                                 {{ formatCnpj(client.cnpj) }}
                             </td>
                             <td class="px-2 py-3">
@@ -269,10 +266,7 @@ function goToPage(nextPage: number): void {
                 </table>
             </div>
 
-            <div
-                v-if="clients.last_page > 1"
-                class="mt-4 flex justify-center"
-            >
+            <div v-if="clients.last_page > 1" class="mt-4 flex justify-center">
                 <UPagination
                     :page="clients.current_page"
                     :items-per-page="clients.per_page"

@@ -3,11 +3,11 @@
 namespace App\Models;
 
 use App\Concerns\BelongsToAccount;
+use Carbon\CarbonInterface;
 use Database\Factories\InvitationFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
-use Carbon\CarbonInterface;
 
 /**
  * Minimal model for Task 3 (full model with relations comes in plan Task 2.1).

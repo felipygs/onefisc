@@ -94,7 +94,11 @@ function onSubmit() {
                 color="error"
                 variant="soft"
                 :title="limitError ?? 'Verifique os dados informados'"
-                :description="limitError ? undefined : 'Há campos inválidos no formulário.'"
+                :description="
+                    limitError
+                        ? undefined
+                        : 'Há campos inválidos no formulário.'
+                "
                 class="mb-4"
                 data-test="client-form-alert"
             />
