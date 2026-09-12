@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { router } from '@inertiajs/vue3';
+import { router, usePage } from '@inertiajs/vue3';
 import { computed, ref, watch } from 'vue';
 import { portalPassword } from '@/routes/certificates';
 
@@ -14,6 +14,15 @@ const serverError = ref<string | null>(null);
 const sending = ref(false);
 
 const toast = useToast();
+
+const page = usePage();
+
+// Same admin gate as the rail open-buttons and the backend
+// (manage-certificates); the modal stays inert even if a parent
+// mounts it unconditionally for a non-admin.
+const canManage = computed<boolean>(
+    () => page.props.permissions?.['manage-users'] === true,
+);
 
 const formState = computed(() => ({
     portal_password: portalSecret.value,
@@ -42,7 +51,7 @@ function firstError(errors: Record<string, string | string[]>): string {
 }
 
 function onSubmit(): void {
-    if (portalSecret.value === '' || sending.value) {
+    if (!canManage.value || portalSecret.value === '' || sending.value) {
         return;
     }
 
@@ -77,6 +86,7 @@ function onSubmit(): void {
 
 <template>
     <UModal
+        v-if="canManage"
         v-model:open="open"
         title="Senha do portal NFS-e"
         description="Salva a senha do Emissor Nacional como alternativa ao certificado. O valor nunca é exibido de volta."
