@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\AccountController;
+use App\Http\Controllers\ClientController;
 use App\Http\Controllers\InvitationController;
 use App\Http\Controllers\OnboardingController;
 use App\Http\Controllers\PlanController;
@@ -30,6 +31,8 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::match(['put', 'patch'], 'plans/{plan}', [PlanController::class, 'update'])->name('plans.update');
 
     Route::patch('accounts/{account}/plan', [AccountController::class, 'updatePlan'])->name('accounts.plan.update');
+
+    Route::resource('clients', ClientController::class);
 });
 
 require __DIR__.'/settings.php';

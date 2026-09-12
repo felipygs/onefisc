@@ -2,7 +2,9 @@
 
 namespace App\Http\Requests;
 
+use App\Models\Account;
 use App\Models\Client;
+use App\Support\CurrentAccount;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 
@@ -10,7 +12,7 @@ class ClientRequest extends FormRequest
 {
     public function authorize(): bool
     {
-        $account = $this->attributes->get('account') ?? $this->user()?->account;
+        $account = CurrentAccount::resolve() ?? $this->user()?->account;
 
         if (! $account) {
             return false;
@@ -24,8 +26,12 @@ class ClientRequest extends FormRequest
      */
     public function rules(): array
     {
-        $accountId = $this->attributes->get('account')?->id ?? $this->user()?->account_id;
-        $clientId = $this->route('client') instanceof Client ? $this->route('client')->id : null;
+        $account = CurrentAccount::resolve();
+        $accountId = $account instanceof Account
+            ? $account->id
+            : $this->user()?->account_id;
+        $client = $this->route('client');
+        $clientId = $client instanceof Client ? $client->id : null;
 
         return [
             'cnpj' => [
