@@ -2,6 +2,7 @@
 
 namespace Database\Factories;
 
+use App\Models\Account;
 use App\Models\Client;
 use App\Models\WorkProcess;
 use App\Models\WorkProcessClient;
@@ -17,9 +18,11 @@ class WorkProcessClientFactory extends Factory
      */
     public function definition(): array
     {
+        $account = Account::factory()->create();
+
         return [
-            'work_process_id' => WorkProcess::factory(),
-            'client_id' => Client::factory(),
+            'work_process_id' => WorkProcess::factory()->create(['account_id' => $account->id]),
+            'client_id' => Client::factory()->create(['account_id' => $account->id]),
         ];
     }
 }

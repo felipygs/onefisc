@@ -36,13 +36,21 @@ it('keeps processes, tasks, departments and tags invisible across accounts', fun
     $tagA = ClientTag::factory()->create(['account_id' => $accountA->id]);
     ClientTag::factory()->create(['account_id' => $accountB->id]);
 
+    $definitionA = WorkProcessTaskDefinition::factory()->create(['work_process_id' => $processA->id]);
+    $associationA = WorkProcessClient::factory()->create([
+        'work_process_id' => $processA->id,
+        'client_id' => $clientA->id,
+    ]);
+
     CurrentAccount::set($accountB);
 
     expect(WorkProcess::find($processA->id))->toBeNull()
         ->and(WorkProcess::find($processB->id)?->id)->toBe($processB->id)
         ->and(WorkTask::find($taskA->id))->toBeNull()
         ->and(AccountDepartment::find($departmentA->id))->toBeNull()
-        ->and(ClientTag::find($tagA->id))->toBeNull();
+        ->and(ClientTag::find($tagA->id))->toBeNull()
+        ->and(WorkProcessTaskDefinition::find($definitionA->id))->toBeNull()
+        ->and(WorkProcessClient::find($associationA->id))->toBeNull();
 });
 
 it('removes definitions, associations and tasks when a process is deleted', function () {

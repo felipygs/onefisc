@@ -18,10 +18,14 @@ class WorkTaskFactory extends Factory
      */
     public function definition(): array
     {
+        $account = Account::factory()->create();
+        $process = WorkProcess::factory()->create(['account_id' => $account->id]);
+        $client = Client::factory()->create(['account_id' => $account->id]);
+
         return [
-            'account_id' => Account::factory(),
-            'work_process_id' => WorkProcess::factory(),
-            'client_id' => Client::factory(),
+            'account_id' => $account->id,
+            'work_process_id' => $process->id,
+            'client_id' => $client->id,
             'work_process_task_definition_id' => null,
             'title' => fake()->sentence(4),
             'status' => 'todo',

@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Concerns\BelongsToAccountThroughProcess;
 use Database\Factories\WorkProcessTaskDefinitionFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -10,8 +11,8 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
 /**
- * Scoped through the parent process (no account_id column): consumers MUST
- * query via WorkProcess (BelongsToAccount) or an explicit work_process_id.
+ * Account isolation is enforced via the parent process: direct queries carry a
+ * global scope filtering work_processes.account_id to the current account.
  *
  * @property int $id
  * @property int $work_process_id
@@ -29,7 +30,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 class WorkProcessTaskDefinition extends Model
 {
     /** @use HasFactory<WorkProcessTaskDefinitionFactory> */
-    use HasFactory;
+    use BelongsToAccountThroughProcess, HasFactory;
 
     /**
      * @return BelongsTo<WorkProcess, $this>
