@@ -11,8 +11,11 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 /**
  * Table has created_at only (no updated_at).
  *
+ * actor_user_id is NULL for system-actor events (queue/observer context
+ * with no authenticated user); senderName() renders those as 'Sistema'.
+ *
  * @property int $id
- * @property int $actor_user_id
+ * @property int|null $actor_user_id
  * @property int $origin_account_id
  * @property int|null $target_account_id
  * @property string $action

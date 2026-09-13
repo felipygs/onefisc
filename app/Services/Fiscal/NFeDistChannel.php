@@ -2,6 +2,8 @@
 
 namespace App\Services\Fiscal;
 
+use DOMDocument;
+use DOMElement;
 use NFePHP\Common\Certificate;
 use NFePHP\NFe\Tools as NFeTools;
 use RuntimeException;
@@ -36,6 +38,43 @@ final class NFeDistChannel implements DistributionChannel
     public function fetchByKey(string $key): ?array
     {
         return DistDfeParser::parseConsult($this->tools()->sefazConsultaChave($key), 'nfe');
+    }
+
+    /**
+     * Manifest Ciencia da Operacao (evento 210210, seq 1) via the vendor
+     * event service. Accepted (135/136) and already-manifested duplicate
+     * (573) both count as success so retries stay idempotent; any other
+     * SEFAZ answer is a refusal (false). Transport errors bubble to the
+     * caller (ScienceService skips the item without fatal error).
+     */
+    public function manifestScience(string $key): bool
+    {
+        return self::scienceAccepted($this->tools()->sefazManifesta($key, NFeTools::EVT_CIENCIA));
+    }
+
+    private static function scienceAccepted(string $soapXml): bool
+    {
+        $dom = new DOMDocument;
+
+        $previous = libxml_use_internal_errors(true);
+
+        try {
+            if (! $dom->loadXML($soapXml)) {
+                return false;
+            }
+        } finally {
+            libxml_use_internal_errors($previous);
+        }
+
+        foreach ($dom->getElementsByTagName('infEvento') as $event) {
+            $cStat = $event->getElementsByTagName('cStat')->item(0);
+
+            if ($cStat instanceof DOMElement && in_array(trim((string) $cStat->textContent), ['135', '136', '573'], true)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private function tools(): NFeTools

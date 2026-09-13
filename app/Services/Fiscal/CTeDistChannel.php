@@ -38,6 +38,16 @@ final class CTeDistChannel implements DistributionChannel
         return DistDfeParser::parseConsult($this->tools()->sefazConsultaChave($key), 'cte');
     }
 
+    /**
+     * Ciencia da Operacao (210210) does not exist for CT-e: the sync persists
+     * CT-e summaries as pending without manifesting, so this always throws
+     * and the runner only manifests the nfe family.
+     */
+    public function manifestScience(string $key): bool
+    {
+        throw new \LogicException('Ciencia da operacao (210210) nao se aplica a CT-e.');
+    }
+
     private function tools(): CTeTools
     {
         if ($this->tools === null) {

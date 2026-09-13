@@ -22,4 +22,15 @@ interface DistributionChannel
      * @return array<string, mixed>|null Null when the key is unknown at SEFAZ.
      */
     public function fetchByKey(string $key): ?array;
+
+    /**
+     * Register automatic Ciencia da Operacao (event 210210) for the given key.
+     *
+     * True when SEFAZ accepts the event, including the idempotent
+     * already-manifested case. CT-e has no ciencia event: the CT-e wrapper
+     * always throws LogicException, and callers only manifest the nfe family.
+     *
+     * @throws \LogicException when the family has no science event (CT-e).
+     */
+    public function manifestScience(string $key): bool;
 }

@@ -32,6 +32,12 @@ final class FakeDistChannel implements DistributionChannel
     /** @var array<int, string> */
     public array $requestedNsus = [];
 
+    /** @var array<int, string> */
+    public array $manifestCalls = [];
+
+    /** @var array<int, string> */
+    public array $manifestFailures = [];
+
     public function fetchSince(string $lastNsu): ChannelBatch
     {
         $this->fetchSinceCalls++;
@@ -43,6 +49,13 @@ final class FakeDistChannel implements DistributionChannel
     public function fetchByKey(string $key): ?array
     {
         return $this->byKey[$key] ?? null;
+    }
+
+    public function manifestScience(string $key): bool
+    {
+        $this->manifestCalls[] = $key;
+
+        return ! in_array($key, $this->manifestFailures, true);
     }
 }
 
