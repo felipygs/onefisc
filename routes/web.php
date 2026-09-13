@@ -59,6 +59,7 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::resource('clients', ClientController::class);
 
     Route::resource('work/processes', WorkProcessController::class)->names('work.processes');
+    Route::put('work/processes/{process}/clients', [WorkProcessController::class, 'updateClients'])->name('work.processes.clients.update');
 });
 
 // Signed file streams require the session AND the signature: auth binds the
