@@ -2,16 +2,22 @@
 
 namespace App\Services\Fiscal;
 
+use App\Models\Account;
 use App\Models\Client;
 use App\Models\ClientCredential;
 use App\Models\FiscalCoverageEvidence;
 use App\Models\FiscalSyncCursor;
 use App\Models\FiscalSyncSubscription;
+use App\Services\PlanLimitService;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Validation\ValidationException;
 
 /**
  * Runs one incremental sync cycle: cursor mechanics + SEFAZ pause handling
- * + automatic ciencia with pending persistence (task 3.3).
+ * + automatic ciencia with pending persistence (task 3.3). Each persisted
+ * document counts 1 toward the Plan volume (task 3.5): an exhausted volume
+ * suspends the batch as `volume_exhausted` WITHOUT persisting anything and
+ * WITHOUT moving the cursor past the unpersisted items.
  *
  * No valid credential (missing, incomplete or expired) suspends the run
  * without ever calling SEFAZ. A SEFAZ pause (cStat 137/656) records blocked_until at the
@@ -33,6 +39,7 @@ final class FiscalSyncRunner
     public function __construct(
         private readonly FiscalChannelFactory $channels = new FiscalChannelFactory,
         private readonly ScienceService $science = new ScienceService,
+        private readonly PlanLimitService $limits = new PlanLimitService,
     ) {}
 
     public function run(FiscalSyncSubscription $subscription): SyncResult
@@ -89,6 +96,16 @@ final class FiscalSyncRunner
             // service fail-stops, so a SEFAZ failure holds the cursor on
             // the unprocessed item for the next cycle.
             $items = array_values($batch->items);
+
+            try {
+                $account = Account::withoutGlobalScopes()->findOrFail($client->account_id);
+                $this->limits->ensureVolume($account);
+            } catch (ValidationException) {
+                // Exhausted Plan volume: persist nothing, keep the cursor on
+                // the unpersisted items, report suspension (no fatal error).
+                return new SyncResult(status: 'volume_exhausted', fetched: $fetched, lastNsu: $lastNsu);
+            }
+
             $processed = $this->science->applyPending($client, $items, $channel, $subscription->family);
             $fetched += $processed;
 

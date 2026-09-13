@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Models\Account;
 use App\Models\Client;
+use App\Models\FiscalDocument;
 use App\Models\Invitation;
 use App\Models\MonitoringCheck;
 use App\Models\Plan;
@@ -119,13 +120,26 @@ class PlanLimitService
 
     public function volumeConsumed(Account $account): int
     {
-        if (! Schema::hasTable('monitoring_checks')) {
-            return 0;
+        $start = now()->startOfMonth();
+
+        $checks = 0;
+
+        if (Schema::hasTable('monitoring_checks')) {
+            $checks = MonitoringCheck::query()->withoutGlobalScopes()
+                ->where('account_id', $account->id)
+                ->where('created_at', '>=', $start)
+                ->count();
         }
 
-        return MonitoringCheck::query()->withoutGlobalScopes()
-            ->where('account_id', $account->id)
-            ->where('created_at', '>=', now()->startOfMonth())
-            ->count();
+        $documents = 0;
+
+        if (Schema::hasTable('fiscal_documents')) {
+            $documents = FiscalDocument::query()->withoutGlobalScopes()
+                ->whereHas('client', fn ($query) => $query->withoutGlobalScopes()->where('account_id', $account->id))
+                ->where('created_at', '>=', $start)
+                ->count();
+        }
+
+        return $checks + $documents;
     }
 }
