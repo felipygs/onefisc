@@ -8,6 +8,7 @@ use App\Models\FiscalDocument;
 use App\Models\FiscalDocumentAction;
 use DOMDocument;
 use DOMElement;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use InvalidArgumentException;
 use Throwable;
@@ -25,8 +26,11 @@ use Throwable;
  * ciencia event: summaries persist as pending without manifesting.
  *
  * Idempotent: already-persisted keys are never re-manifested and never
- * duplicated. Fail-stop: the first SEFAZ failure stops the batch so the
- * runner holds the cursor on the unprocessed item for the next cycle.
+ * duplicated. Each item persists atomically (document + action + audit in
+ * one transaction), and the already-known path recovers science records a
+ * previous interrupted run left behind. Fail-stop: the first SEFAZ failure
+ * stops the batch so the runner holds the cursor on the unprocessed item
+ * for the next cycle.
  */
 final class ScienceService
 {
@@ -76,7 +80,12 @@ final class ScienceService
                 continue;
             }
 
-            if ($this->alreadyPending($client->id, $key)) {
+            $existing = $this->pendingDocument($client->id, $key);
+
+            if ($existing !== null) {
+                // Never re-manifest a known key: heal science records an
+                // interrupted run left behind, then move on.
+                DB::transaction(fn () => $this->ensureScienceRecords($client, $existing, $key));
                 $processed++;
 
                 continue;
@@ -107,12 +116,56 @@ final class ScienceService
         return $processed;
     }
 
-    private function alreadyPending(int $clientId, string $key): bool
+    private function pendingDocument(int $clientId, string $key): ?FiscalDocument
     {
         return FiscalDocument::withoutGlobalScopes()
             ->where('client_id', $clientId)
             ->where('key', $key)
+            ->first();
+    }
+
+    /**
+     * Create the missing ciencia action / audit for a persisted document.
+     * Must run inside a DB transaction: the row lock serializes overlapping
+     * runs so the existence checks below stay duplicate-free (the action and
+     * audit tables carry no unique constraint of their own).
+     */
+    private function ensureScienceRecords(Client $client, FiscalDocument $document, string $key): void
+    {
+        $locked = FiscalDocument::withoutGlobalScopes()
+            ->whereKey($document->id)
+            ->lockForUpdate()
+            ->firstOrFail();
+
+        $actionExists = FiscalDocumentAction::withoutGlobalScopes()
+            ->where('fiscal_document_id', $locked->id)
+            ->where('type', self::ACTION_AUTO_SCIENCE)
             ->exists();
+
+        if (! $actionExists) {
+            FiscalDocumentAction::withoutGlobalScopes()->create([
+                'fiscal_document_id' => $locked->id,
+                'type' => self::ACTION_AUTO_SCIENCE,
+                'actor_user_id' => null,
+                'metadata' => ['key' => $key],
+            ]);
+        }
+
+        $auditExists = AuditLog::where('action', self::AUDIT_AUTO_SCIENCE)
+            ->where('origin_account_id', $client->account_id)
+            ->where('metadata->client_id', $client->id)
+            ->where('metadata->key', $key)
+            ->exists();
+
+        if (! $auditExists) {
+            AuditLog::create([
+                'actor_user_id' => null,
+                'origin_account_id' => $client->account_id,
+                'target_account_id' => $client->account_id,
+                'action' => self::AUDIT_AUTO_SCIENCE,
+                'metadata' => ['client_id' => $client->id, 'key' => $key],
+            ]);
+        }
     }
 
     /**
@@ -120,22 +173,11 @@ final class ScienceService
      */
     private function persistPendingWithScience(Client $client, array $resumo, string $key): void
     {
-        $document = $this->persistPending($client, $resumo, $key, 'nfe');
+        DB::transaction(function () use ($client, $resumo, $key) {
+            $document = $this->persistPending($client, $resumo, $key, 'nfe');
 
-        FiscalDocumentAction::withoutGlobalScopes()->create([
-            'fiscal_document_id' => $document->id,
-            'type' => self::ACTION_AUTO_SCIENCE,
-            'actor_user_id' => null,
-            'metadata' => ['key' => $key],
-        ]);
-
-        AuditLog::create([
-            'actor_user_id' => null,
-            'origin_account_id' => $client->account_id,
-            'target_account_id' => $client->account_id,
-            'action' => self::AUDIT_AUTO_SCIENCE,
-            'metadata' => ['client_id' => $client->id, 'key' => $key],
-        ]);
+            $this->ensureScienceRecords($client, $document, $key);
+        });
     }
 
     /**

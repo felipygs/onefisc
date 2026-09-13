@@ -201,6 +201,68 @@ it('does not duplicate documents, actions or audits when the batch re-runs', fun
 });
 
 // ---------------------------------------------------------------------------
+// 2b. An already-pending document left without science records (interrupted
+//     earlier run) recovers them without re-manifesting, and never duplicates.
+// ---------------------------------------------------------------------------
+
+it('recovers missing science records for an already-pending document', function () {
+    $client = syncClientWithCredential();
+    $subscription = syncSubscriptionFor($client);
+    $key = scienceKey('1');
+
+    // Simulate the interrupted write: document persisted, action+audit lost.
+    FiscalDocument::factory()->create([
+        'client_id' => $client->id,
+        'family' => 'nfe',
+        'doc_type' => 'nfe',
+        'key' => $key,
+        'status' => 'pending',
+        'has_xml' => false,
+    ]);
+
+    expect(FiscalDocumentAction::withoutGlobalScopes()->count())->toBe(0)
+        ->and(AuditLog::where('action', 'fiscal.science.auto')->count())->toBe(0);
+
+    $batch = fn () => new ChannelBatch(
+        items: [scienceResumo('000000000000001', $key)],
+        lastNsu: '000000000000001',
+    );
+
+    $fake = new FakeDistChannel;
+    $fake->queuedBatches = [$batch()];
+
+    $result = runnerWithFakeChannel($fake)->run($subscription);
+
+    expect($fake->manifestCalls)->toBe([])
+        ->and($result->fetched)->toBe(1);
+
+    expect(FiscalDocument::withoutGlobalScopes()->where('client_id', $client->id)->count())->toBe(1);
+
+    $action = FiscalDocumentAction::withoutGlobalScopes()->firstOrFail();
+
+    expect($action->type)->toBe('ciencia_210210_auto')
+        ->and($action->actor_user_id)->toBeNull()
+        ->and($action->metadata['key'] ?? null)->toBe($key);
+
+    $audit = AuditLog::where('action', 'fiscal.science.auto')->firstOrFail();
+
+    expect($audit->actor_user_id)->toBeNull()
+        ->and($audit->metadata['client_id'] ?? null)->toBe($client->id)
+        ->and($audit->metadata['key'] ?? null)->toBe($key)
+        ->and(scienceCursorFor($client->id))->toBe('000000000000001');
+
+    // A further re-run with the records present duplicates nothing.
+    $rerun = new FakeDistChannel;
+    $rerun->queuedBatches = [$batch()];
+
+    runnerWithFakeChannel($rerun)->run($subscription->fresh());
+
+    expect(FiscalDocumentAction::withoutGlobalScopes()->count())->toBe(1)
+        ->and(AuditLog::where('action', 'fiscal.science.auto')->count())->toBe(1)
+        ->and($rerun->manifestCalls)->toBe([]);
+});
+
+// ---------------------------------------------------------------------------
 // 3. A SEFAZ science failure skips the item without fatal error and the
 //    cursor never moves past it.
 // ---------------------------------------------------------------------------
