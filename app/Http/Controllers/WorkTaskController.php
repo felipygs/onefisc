@@ -9,6 +9,7 @@ use App\Models\User;
 use App\Models\WorkTask;
 use App\Policies\WorkTaskPolicy;
 use App\Support\CurrentAccount;
+use App\Support\WorkCompetence;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -40,6 +41,7 @@ class WorkTaskController extends Controller
                 Rule::exists('users', 'id')->where('account_id', $account->id),
             ],
             'status' => ['sometimes', 'string', 'in:backlog,todo,in_progress,done'],
+            'competence' => ['sometimes', 'string', 'regex:'.WorkCompetence::PATTERN],
             'from' => ['sometimes', 'date_format:Y-m-d'],
             'to' => ['sometimes', 'date_format:Y-m-d'],
         ], [
@@ -47,9 +49,19 @@ class WorkTaskController extends Controller
             'process_id.exists' => 'O processo não pertence a esta Account.',
             'assignee_id.exists' => 'O responsável não pertence a esta Account.',
             'status.in' => 'O status deve ser backlog, todo, in_progress ou done.',
+            'competence.regex' => 'A competência deve estar no formato AAAA-MM.',
             'from.date_format' => 'A data inicial deve estar no formato AAAA-MM-DD.',
             'to.date_format' => 'A data final deve estar no formato AAAA-MM-DD.',
         ]);
+
+        $competence = $filters['competence'] ?? null;
+
+        if (is_string($competence) && $competence !== '') {
+            // GET with side effect (legacy-mandated): opening a competence
+            // materializes the missing checklist instances before listing.
+            $user = $request->user();
+            WorkCompetence::materialize($account->id, $user instanceof User ? $user : null, $competence);
+        }
 
         $tasks = $this->scopedQuery($account->id)
             ->with(['process', 'client', 'assignee'])
@@ -68,6 +80,10 @@ class WorkTaskController extends Controller
             ->when(
                 array_key_exists('status', $filters),
                 fn ($query) => $query->where('work_tasks.status', $filters['status'])
+            )
+            ->when(
+                array_key_exists('competence', $filters),
+                fn ($query) => $query->forCompetence($filters['competence'])
             )
             ->when(
                 array_key_exists('from', $filters) || array_key_exists('to', $filters),

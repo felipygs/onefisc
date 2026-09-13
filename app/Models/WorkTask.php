@@ -3,8 +3,10 @@
 namespace App\Models;
 
 use App\Concerns\BelongsToAccount;
+use App\Support\WorkCompetence;
 use Database\Factories\WorkTaskFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -78,6 +80,19 @@ class WorkTask extends Model
     public function department(): BelongsTo
     {
         return $this->belongsTo(AccountDepartment::class, 'department_id');
+    }
+
+    /**
+     * Competence matching shared by the task list, the process tree and the
+     * board (single rule implementation lives in WorkCompetence). Null
+     * means no filter — `?competence` is explicit only, never defaulted.
+     *
+     * @param  Builder<WorkTask>  $query
+     * @return Builder<WorkTask>
+     */
+    public function scopeForCompetence(Builder $query, ?string $competence): Builder
+    {
+        return WorkCompetence::applyScope($query, $competence);
     }
 
     /**

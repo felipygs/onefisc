@@ -10,6 +10,7 @@ use App\Models\WorkTask;
 use App\Policies\WorkProcessPolicy;
 use App\Policies\WorkTaskPolicy;
 use App\Support\CurrentAccount;
+use App\Support\WorkCompetence;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -26,6 +27,11 @@ use Inertia\Response;
  * WorkTaskController and their policies. Overview, calendar, catalog and
  * the pair workspace land in later waves — here they render honest empty
  * panels, never demo numbers.
+ *
+ * Task 3.1: the `processo` and `tarefas` views accept an explicit
+ * `?competence=YYYY-MM` which first materializes the missing checklist
+ * instances (GET with side effect, legacy-mandated) and then scopes every
+ * task list through the shared WorkCompetence rule.
  */
 class WorkViewController extends Controller
 {
@@ -75,20 +81,36 @@ class WorkViewController extends Controller
         abort_unless(in_array($view, self::VIEWS, true), 404);
 
         $user = $request->user();
+
+        $validated = $request->validate([
+            'competence' => ['sometimes', 'string', 'regex:'.WorkCompetence::PATTERN],
+        ], [
+            'competence.regex' => 'A competência deve estar no formato AAAA-MM.',
+        ]);
+
+        $competence = $validated['competence'] ?? null;
+
+        if (is_string($competence) && $competence !== '') {
+            // GET with side effect (legacy-mandated): opening a competence
+            // materializes the missing checklist instances before listing.
+            WorkCompetence::materialize($account->id, $user instanceof User ? $user : null, $competence);
+        }
+
         $search = trim((string) $request->query('search', ''));
 
         $props = [
             'view' => $view,
             'search' => $search,
+            'competence' => $competence,
         ];
 
         if ($view === 'processo') {
-            $props['processes'] = $this->processTree($account->id, $user instanceof User ? $user : null, $search);
+            $props['processes'] = $this->processTree($account->id, $user instanceof User ? $user : null, $search, $competence);
             $props['hasAssignments'] = $this->hasAssignments($account->id, $user instanceof User ? $user : null);
         }
 
         if ($view === 'tarefas') {
-            $props['board'] = $this->board($account->id, $user instanceof User ? $user : null);
+            $props['board'] = $this->board($account->id, $user instanceof User ? $user : null, $competence);
             $props['hasAssignments'] = $this->hasAssignments($account->id, $user instanceof User ? $user : null);
         }
 
@@ -104,7 +126,7 @@ class WorkViewController extends Controller
      *
      * @return list<array<string, mixed>>
      */
-    protected function processTree(int $accountId, ?User $user, string $search): array
+    protected function processTree(int $accountId, ?User $user, string $search, ?string $competence = null): array
     {
         $manager = $this->manages($user);
         $like = $this->like($search);
@@ -140,7 +162,7 @@ class WorkViewController extends Controller
         $processIds = array_values($processes->pluck('id')->map(fn ($id) => (int) $id)->all());
 
         $clientsByProcess = $this->treeClients($accountId, $user, $manager, $processIds);
-        $tasksByPair = $this->treeTasks($accountId, $user, $processIds, $clientsByProcess);
+        $tasksByPair = $this->treeTasks($accountId, $user, $processIds, $clientsByProcess, $competence);
 
         return array_values($processes->map(function (WorkProcess $process) use ($clientsByProcess, $tasksByPair): array {
             $clients = $clientsByProcess[$process->id] ?? [];
@@ -201,7 +223,7 @@ class WorkViewController extends Controller
      * @param  array<int, list<array{id: int, razao_social: string}>>  $clientsByProcess
      * @return array<int, array<int, list<array<string, mixed>>>>
      */
-    protected function treeTasks(int $accountId, ?User $user, array $processIds, array $clientsByProcess): array
+    protected function treeTasks(int $accountId, ?User $user, array $processIds, array $clientsByProcess, ?string $competence = null): array
     {
         $clientIds = collect($clientsByProcess)->flatten(1)->pluck('id')->unique()->values()->all();
 
@@ -213,6 +235,7 @@ class WorkViewController extends Controller
             WorkTask::query()->where('work_tasks.account_id', $accountId),
             $user
         )
+            ->forCompetence($competence)
             ->whereIn('work_tasks.work_process_id', $processIds)
             ->whereIn('work_tasks.client_id', $clientIds)
             ->with(['assignee:id,name'])
@@ -255,12 +278,13 @@ class WorkViewController extends Controller
      *
      * @return array<string, list<array<string, mixed>>>
      */
-    protected function board(int $accountId, ?User $user): array
+    protected function board(int $accountId, ?User $user, ?string $competence = null): array
     {
         $tasks = WorkTaskPolicy::scopeVisible(
             WorkTask::query()->where('work_tasks.account_id', $accountId),
             $user
         )
+            ->forCompetence($competence)
             ->with([
                 'process:id,title',
                 'client:id,razao_social',
