@@ -7,6 +7,7 @@ use App\Models\User;
 use App\Models\WorkMarketplaceProcess;
 use App\Models\WorkMarketplaceTaskDefinition;
 use App\Models\WorkProcess;
+use App\Models\WorkProcessClient;
 use App\Models\WorkTask;
 
 // Task 5.1: audit trail for Work mutations (process, checklist, association,
@@ -276,6 +277,31 @@ it('emits nothing on reads', function () {
     $this->get(route('work.overview'))->assertOk();
 
     expect(AuditLog::where('action', 'like', 'work.%')->count())->toBe($before);
+
+    // Side-effecting reads: opening a competence materializes the missing
+    // checklist instances through the single shared WorkCompetence
+    // materializer (task list, process tree/board, month calendar) — the
+    // writes happen, the trail stays silent. Direct pivot insert (no HTTP
+    // apply) leaves no timeless rows, so every open below provably writes.
+    $client = Client::factory()->create(['account_id' => $account->id]);
+    WorkProcessClient::create(['work_process_id' => $process->id, 'client_id' => $client->id]);
+
+    // Task-list open writes the dated rows for 2026-10 …
+    $this->get(route('work.tasks.index', ['competence' => '2026-10']))->assertOk();
+
+    expect(WorkTask::where('work_process_id', $process->id)->where('competence', '2026-10')->count())->toBe(2)
+        ->and(AuditLog::where('action', 'like', 'work.%')->count())->toBe($before);
+
+    // … process-tree open writes 2026-11, board open writes 2026-12.
+    $this->get(route('work.processos', ['view' => 'processo', 'competence' => '2026-11']))->assertOk();
+
+    expect(WorkTask::where('work_process_id', $process->id)->where('competence', '2026-11')->count())->toBe(2)
+        ->and(AuditLog::where('action', 'like', 'work.%')->count())->toBe($before);
+
+    $this->get(route('work.processos', ['view' => 'tarefas', 'competence' => '2026-12']))->assertOk();
+
+    expect(WorkTask::where('work_process_id', $process->id)->where('competence', '2026-12')->count())->toBe(2)
+        ->and(AuditLog::where('action', 'like', 'work.%')->count())->toBe($before);
 });
 
 it('keeps the work trail invisible across accounts', function () {
