@@ -15,6 +15,7 @@ import { index as clientsIndex } from '@/routes/clients';
 import { index as documentsIndex } from '@/routes/documents';
 import { index as membersIndex } from '@/routes/members';
 import { edit as editNotifications } from '@/routes/notifications';
+import { overview as workOverview } from '@/routes/work';
 import { edit as editProfile } from '@/routes/profile';
 import { edit as editSecurity } from '@/routes/security';
 import type { BreadcrumbItem } from '@/types';
@@ -34,6 +35,10 @@ const canOperateClients = computed(
 const canManageUsers = computed(
     () => page.props.permissions?.['manage-users'] === true,
 );
+// Work é visível a todo membro autenticado (admin/operador/user): o
+// isolamento de `user` sem atribuições resolve nas props filtradas,
+// com o estado vazio honesto "no clients assigned".
+const canViewWork = computed(() => page.props.auth?.user != null);
 
 const links = computed<NavigationMenuItem[][]>(() => [
     [
@@ -59,6 +64,18 @@ const links = computed<NavigationMenuItem[][]>(() => [
                       label: 'Documentos',
                       icon: 'i-lucide-file-text',
                       to: documentsIndex.url(),
+                      onSelect: () => {
+                          open.value = false;
+                      },
+                  },
+              ]
+            : []),
+        ...(canViewWork.value
+            ? [
+                  {
+                      label: 'Work',
+                      icon: 'i-lucide-briefcase',
+                      to: workOverview.url(),
                       onSelect: () => {
                           open.value = false;
                       },

@@ -13,6 +13,7 @@ use App\Http\Controllers\OnboardingController;
 use App\Http\Controllers\PlanController;
 use App\Http\Controllers\WorkProcessController;
 use App\Http\Controllers\WorkTaskController;
+use App\Http\Controllers\WorkViewController;
 use App\Models\Account;
 use Illuminate\Support\Facades\Route;
 
@@ -64,6 +65,10 @@ Route::middleware(['auth', 'verified'])->group(function () {
 
     Route::resource('work/tasks', WorkTaskController::class)->names('work.tasks');
     Route::patch('work/tasks/{task}/move', [WorkTaskController::class, 'move'])->name('work.tasks.move');
+
+    Route::get('work', fn () => redirect()->route('work.overview'))->name('work.index');
+    Route::get('work/overview', [WorkViewController::class, 'overview'])->name('work.overview');
+    Route::get('work/processos/{view?}', [WorkViewController::class, 'processos'])->name('work.processos');
 });
 
 // Signed file streams require the session AND the signature: auth binds the
