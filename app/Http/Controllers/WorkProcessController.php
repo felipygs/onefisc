@@ -75,8 +75,9 @@ class WorkProcessController extends Controller
 
     public function show(int|string $process): Response
     {
-        abort_unless(CurrentAccount::resolve() !== null, 404);
-        $model = $this->findProcess($process);
+        $account = CurrentAccount::resolve();
+        abort_unless($account !== null, 404);
+        $model = $this->findProcess($process, $account->id);
         Gate::authorize('view', $model);
 
         return Inertia::render('Work/Processes/Show', [
@@ -86,8 +87,9 @@ class WorkProcessController extends Controller
 
     public function edit(int|string $process): Response
     {
-        abort_unless(CurrentAccount::resolve() !== null, 404);
-        $model = $this->findProcess($process);
+        $account = CurrentAccount::resolve();
+        abort_unless($account !== null, 404);
+        $model = $this->findProcess($process, $account->id);
         Gate::authorize('update', $model);
 
         return Inertia::render('Work/Processes/Edit', [
@@ -97,8 +99,9 @@ class WorkProcessController extends Controller
 
     public function update(UpdateWorkProcessRequest $request, int|string $process): RedirectResponse
     {
-        abort_unless(CurrentAccount::resolve() !== null, 404);
-        $model = $this->findProcess($process);
+        $account = CurrentAccount::resolve();
+        abort_unless($account !== null, 404);
+        $model = $this->findProcess($process, $account->id);
         $validated = $request->validated();
         $definitions = $validated['definitions'] ?? null;
         unset($validated['definitions']);
@@ -116,8 +119,9 @@ class WorkProcessController extends Controller
 
     public function destroy(int|string $process): RedirectResponse
     {
-        abort_unless(CurrentAccount::resolve() !== null, 404);
-        $model = $this->findProcess($process);
+        $account = CurrentAccount::resolve();
+        abort_unless($account !== null, 404);
+        $model = $this->findProcess($process, $account->id);
         Gate::authorize('delete', $model);
 
         // Hard delete: DB cascades remove definitions, associations and
@@ -137,38 +141,52 @@ class WorkProcessController extends Controller
     {
         $account = CurrentAccount::resolve();
         abort_unless($account !== null, 404);
-        $model = $this->findProcess($process);
+        $model = $this->findProcess($process, $account->id);
 
         $validated = $request->validated();
-        $definitions = $model->definitions()->orderBy('position')->get();
 
-        DB::transaction(function () use ($model, $account, $validated, $definitions): void {
+        DB::transaction(function () use ($model, $account, $validated): void {
+            // Serialize concurrent applies per process: the NULL-competence
+            // unique key cannot dedupe undated rows (NULLs compare distinct
+            // in SQLite/Postgres/MySQL), so this row lock — not the index —
+            // is what keeps racing applies from double-materializing. The
+            // index stays as backstop for dated rows (3.1/3.2 put competence
+            // in the key for monthly recurrence). Loading definitions after
+            // the lock also keeps the materialized snapshot consistent.
+            $locked = WorkProcess::query()
+                ->where('work_processes.account_id', $account->id)
+                ->whereKey($model->id)
+                ->lockForUpdate()
+                ->firstOrFail();
+
+            $definitions = $locked->definitions()->orderBy('position')->get();
+
             $effective = array_key_exists('client_ids', $validated) && is_array($validated['client_ids'])
                 ? $this->accountClientIds($account->id, $validated['client_ids'])
-                : $this->effectiveClientIds($model, $account->id);
+                : $this->effectiveClientIds($locked, $account->id);
 
-            $previous = $model->processClients()->pluck('client_id')->map(fn ($id) => (int) $id)->all();
+            $previous = $locked->processClients()->pluck('client_id')->map(fn ($id) => (int) $id)->all();
             $fresh = array_values(array_diff($effective, $previous));
             $removed = array_values(array_diff($previous, $effective));
 
             if ($fresh !== []) {
                 $now = now();
                 WorkProcessClient::insertOrIgnore(array_map(fn (int $clientId) => [
-                    'work_process_id' => $model->id,
+                    'work_process_id' => $locked->id,
                     'client_id' => $clientId,
                     'created_at' => $now,
                     'updated_at' => $now,
                 ], $fresh));
 
-                $this->materializeTasks($model, $account->id, $fresh, $definitions);
+                $this->materializeTasks($locked, $account->id, $fresh, $definitions);
             }
 
             foreach ($removed as $clientId) {
-                WorkTask::where('work_process_id', $model->id)
+                WorkTask::where('work_process_id', $locked->id)
                     ->where('client_id', $clientId)
                     ->where('status', '!=', 'done')
                     ->delete();
-                $model->processClients()->where('client_id', $clientId)->delete();
+                $locked->processClients()->where('client_id', $clientId)->delete();
             }
         });
 
@@ -179,9 +197,11 @@ class WorkProcessController extends Controller
      * Resolve a process through the account-scoped query. Foreign or malformed
      * ids fail with 404 here, before any policy check can leak a 403.
      */
-    protected function findProcess(int|string $id): WorkProcess
+    protected function findProcess(int|string $id, int $accountId): WorkProcess
     {
-        return WorkProcess::query()->findOrFail($id);
+        return WorkProcess::query()
+            ->where('work_processes.account_id', $accountId)
+            ->findOrFail($id);
     }
 
     /**
@@ -285,7 +305,10 @@ class WorkProcessController extends Controller
                 ->whereIn('clients.id', $extraIds)
                 ->pluck('clients.id')->map(fn ($id) => (int) $id)->all();
 
-        $excluded = array_map('intval', (array) ($process->excluded_client_ids ?? []));
+        $excluded = array_values(array_filter(
+            array_map('intval', (array) ($process->excluded_client_ids ?? [])),
+            fn (int $id) => $id > 0
+        ));
 
         return array_values(array_diff(array_unique([...$matched, ...$extras]), $excluded));
     }
@@ -332,13 +355,18 @@ class WorkProcessController extends Controller
         $now = now();
         $rows = [];
 
+        // One grouped read for every applying client instead of a pluck per
+        // client, so re-apply convergence checks stay a single query.
+        $existingByClient = [];
+        foreach (WorkTask::where('work_process_id', $process->id)
+            ->whereIn('client_id', $clientIds)
+            ->whereNotNull('work_process_task_definition_id')
+            ->get(['client_id', 'work_process_task_definition_id']) as $existing) {
+            $existingByClient[$existing->client_id][] = $existing->work_process_task_definition_id;
+        }
+
         foreach ($clientIds as $clientId) {
-            $existing = WorkTask::where('work_process_id', $process->id)
-                ->where('client_id', $clientId)
-                ->whereNotNull('work_process_task_definition_id')
-                ->pluck('work_process_task_definition_id')
-                ->map(fn ($id) => (int) $id)
-                ->all();
+            $existing = $existingByClient[$clientId] ?? [];
 
             foreach ($definitions as $definition) {
                 if (in_array($definition->id, $existing, true)) {

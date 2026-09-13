@@ -11,10 +11,14 @@ class UpdateWorkProcessClientsRequest extends FormRequest
 {
     public function authorize(): bool
     {
-        // Same scoped pattern as UpdateWorkProcessRequest: no implicit
-        // binding, foreign or malformed ids 404 before the policy can 403.
-        abort_unless(CurrentAccount::resolve() !== null, 404);
-        $process = WorkProcess::query()->findOrFail($this->route('process'));
+        // Same scoped pattern as the controller: no implicit binding, the
+        // lookup carries the resolved account so foreign or malformed ids
+        // 404 before the policy can 403.
+        $account = CurrentAccount::resolve();
+        abort_unless($account !== null, 404);
+        $process = WorkProcess::query()
+            ->where('work_processes.account_id', $account->id)
+            ->findOrFail($this->route('process'));
 
         return $this->user()?->can('update', $process) ?? false;
     }

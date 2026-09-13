@@ -256,6 +256,47 @@ it('answers 404 for processes of another account', function () {
     expect(WorkProcessClient::where('work_process_id', $foreign->id)->count())->toBe(0);
 });
 
+it('lets operadores apply associations', function () {
+    [$account, $operator] = workAccountUser('operador');
+    $this->actingAs($operator);
+
+    $client = Client::factory()->create(['account_id' => $account->id]);
+
+    $process = associationProcessWithDefinitions($account);
+
+    $this->put(route('work.processes.clients.update', $process), [])->assertRedirect();
+
+    expect(WorkProcessClient::where('work_process_id', $process->id)->pluck('client_id')->all())
+        ->toBe([$client->id])
+        ->and(WorkTask::where('work_process_id', $process->id)->where('client_id', $client->id)->count())->toBe(2);
+});
+
+it('disassociates every client on an explicit empty list while keeping done tasks', function () {
+    [$account, $admin] = workAccountUser('admin');
+    $this->actingAs($admin);
+
+    $first = Client::factory()->create(['account_id' => $account->id]);
+    $second = Client::factory()->create(['account_id' => $account->id]);
+
+    $process = associationProcessWithDefinitions($account);
+
+    $this->put(route('work.processes.clients.update', $process), [])->assertRedirect();
+    expect(WorkTask::where('work_process_id', $process->id)->count())->toBe(4);
+
+    WorkTask::where('work_process_id', $process->id)->where('client_id', $first->id)->orderBy('position')->firstOrFail()
+        ->update(['status' => 'done']);
+
+    $this->put(route('work.processes.clients.update', $process), ['client_ids' => []])->assertRedirect();
+
+    expect(WorkProcessClient::where('work_process_id', $process->id)->count())->toBe(0);
+
+    $remaining = WorkTask::where('work_process_id', $process->id)->get();
+    expect($remaining)->toHaveCount(1)
+        ->and($remaining->first()?->status)->toBe('done')
+        ->and($remaining->first()?->client_id)->toBe($first->id);
+    expect(WorkTask::where('work_process_id', $process->id)->where('client_id', $second->id)->count())->toBe(0);
+});
+
 it('rejects unknown or foreign client ids with 422', function () {
     [$account, $admin] = workAccountUser('admin');
     $this->actingAs($admin);
