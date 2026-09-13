@@ -90,6 +90,8 @@ class WorkTaskController extends Controller
 
     public function create(): Response
     {
+        $account = CurrentAccount::resolve();
+        abort_unless($account !== null, 404);
         Gate::authorize('create', WorkTask::class);
 
         return Inertia::render('Work/Tasks/Create');
