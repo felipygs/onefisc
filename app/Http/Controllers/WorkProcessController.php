@@ -12,6 +12,7 @@ use App\Models\WorkProcessClient;
 use App\Models\WorkProcessTaskDefinition;
 use App\Models\WorkTask;
 use App\Policies\WorkProcessPolicy;
+use App\Policies\WorkTaskPolicy;
 use App\Support\CurrentAccount;
 use App\Support\WorkAssociation;
 use Illuminate\Database\Eloquent\Builder;
@@ -21,6 +22,7 @@ use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
+use Illuminate\Support\Facades\Schema;
 use Inertia\Inertia;
 use Inertia\Response;
 
@@ -269,6 +271,161 @@ class WorkProcessController extends Controller
                 'extras' => $preview['extras'],
             ],
         ]);
+    }
+
+    /**
+     * Pair execution workspace read model (Task 4.3): one JSON payload for
+     * the process–Client modal — identity, derived progress, operational
+     * summary, the pair task list in position order, the ad-hoc create gate
+     * and the server-computed documents gate. Zero writes.
+     *
+     * Lookup order keeps ids indistinguishable: account-scoped `findOrFail`
+     * for BOTH process and client first (foreign ids 404), then the
+     * association row (non-associated same-account pairs 404), then the
+     * collaborator assignment check (unassigned pairs 404, never 403).
+     * Managers (`admin`/`operador`) reach every associated pair.
+     */
+    public function showClient(int|string $process, int|string $client): JsonResponse
+    {
+        $account = CurrentAccount::resolve();
+        abort_unless($account !== null, 404);
+        Gate::authorize('viewAny', WorkProcess::class);
+
+        $model = $this->findProcess($process, $account->id);
+
+        $clientModel = Client::query()
+            ->where('clients.account_id', $account->id)
+            ->findOrFail($client);
+
+        abort_unless(WorkProcessClient::query()
+            ->where('work_process_id', $model->id)
+            ->where('client_id', $clientModel->id)
+            ->exists(), 404);
+
+        $user = request()->user();
+
+        if ($user instanceof User && ! in_array($user->role, WorkProcessPolicy::MANAGING_ROLES, true)) {
+            $assigned = DB::table('client_user')
+                ->where('client_id', $clientModel->id)
+                ->where('user_id', $user->id)
+                ->exists();
+            abort_unless($assigned, 404);
+        }
+
+        $tasks = WorkTask::query()
+            ->where('work_tasks.account_id', $account->id)
+            ->where('work_tasks.work_process_id', $model->id)
+            ->where('work_tasks.client_id', $clientModel->id)
+            ->with(['assignee:id,name', 'process:id,target_lead_days'])
+            ->orderBy('work_tasks.position')
+            ->orderBy('work_tasks.id')
+            ->get();
+
+        $open = $tasks->filter(fn (WorkTask $task): bool => $task->status !== 'done')->values();
+        $doneCount = $tasks->count() - $open->count();
+
+        $nextDue = $open
+            ->map(fn (WorkTask $task): ?string => $task->due_on?->format('Y-m-d'))
+            ->filter()
+            ->min();
+
+        return response()->json([
+            'process' => [
+                'id' => $model->id,
+                'title' => $model->title,
+                'description' => $model->description,
+            ],
+            'client' => [
+                'id' => $clientModel->id,
+                'name' => $clientModel->razao_social,
+                'tax_id' => $clientModel->cnpj,
+            ],
+            'progress' => [
+                'done' => $doneCount,
+                'total' => $tasks->count(),
+            ],
+            'summary' => [
+                'next_due' => $nextDue,
+                'highest_open_priority' => self::highestOpenPriority($open),
+                'open_count' => $open->count(),
+                'done_count' => $doneCount,
+            ],
+            'tasks' => $tasks
+                ->map(fn (WorkTask $task): array => [
+                    'id' => $task->id,
+                    'title' => $task->title,
+                    'status' => $task->status,
+                    'position' => $task->position,
+                    'priority' => $task->priority,
+                    'due_on' => $task->due_on?->format('Y-m-d'),
+                    'target_date' => $task->target_date,
+                    'assignee' => $task->assignee === null ? null : [
+                        'id' => $task->assignee->id,
+                        'name' => $task->assignee->name,
+                    ],
+                ])->all(),
+            // Ad-hoc creation from the modal is a managing affordance (same
+            // roles that manage processes and install marketplace listings):
+            // collaborators reach the workspace read-only. Direct POSTs to
+            // `work.tasks.store` keep their own assignment-aware gate.
+            'can_create_task' => $user instanceof User
+                && in_array($user->role, WorkTaskPolicy::MANAGING_ROLES, true),
+            'documents_available' => $this->documentsAvailable((int) $clientModel->id),
+        ]);
+    }
+
+    /**
+     * Read-only fiscal presence check (Decision 6): true WHEN the client
+     * carries a filled credential OR at least one fiscal document. Raw query
+     * builder only — no fiscal model, event or scope ever runs, and nothing
+     * is written. Missing or unreadable fiscal structures resolve to false,
+     * never to a 500.
+     */
+    protected function documentsAvailable(int $clientId): bool
+    {
+        try {
+            if (Schema::hasTable('client_credentials') && DB::table('client_credentials')
+                ->where('client_id', $clientId)
+                ->whereNotNull('pfx_data')
+                ->exists()) {
+                return true;
+            }
+
+            if (Schema::hasTable('fiscal_documents') && DB::table('fiscal_documents')
+                ->where('client_id', $clientId)
+                ->exists()) {
+                return true;
+            }
+        } catch (\Throwable) {
+            return false;
+        }
+
+        return false;
+    }
+
+    /**
+     * Highest priority among open tasks (`urgent` wins, legacy `none` and
+     * unknown values rank lowest); null when nothing is open.
+     *
+     * @param  Collection<int, WorkTask>  $open
+     */
+    protected static function highestOpenPriority(Collection $open): ?string
+    {
+        $ranks = ['none' => 0, 'low' => 1, 'medium' => 2, 'high' => 3, 'urgent' => 4];
+
+        $best = null;
+        $bestRank = -1;
+
+        foreach ($open as $task) {
+            $rank = $ranks[$task->priority] ?? 0;
+
+            if ($rank > $bestRank) {
+                $bestRank = $rank;
+                $best = $task->priority;
+            }
+        }
+
+        return $best;
     }
 
     /**

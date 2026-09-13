@@ -1,10 +1,14 @@
 <script setup lang="ts">
 import { Head, router } from '@inertiajs/vue3';
-import { ref, watch } from 'vue';
+import { computed, nextTick, ref, watch } from 'vue';
 import WorkCalendar from '@/components/work/WorkCalendar.vue';
 import WorkChildNav from '@/components/work/WorkChildNav.vue';
-import { move as moveTask } from '@/actions/App/Http/Controllers/WorkTaskController';
+import {
+    move as moveTask,
+    store as storeTask,
+} from '@/actions/App/Http/Controllers/WorkTaskController';
 import { processos as workProcessos } from '@/routes/work';
+import { show as showWorkspace } from '@/routes/work/processes/clients';
 
 type BoardStatus = 'backlog' | 'todo' | 'in_progress' | 'done';
 
@@ -197,8 +201,8 @@ watch(searchInput, (value) => {
     }, 350);
 });
 
-// Estado de expansão sticky-local (Decisão 7): sobrevive a reloads, nunca
-// abre sheet/modal — o workspace do par chega só na Onda 3 (4.3).
+// Estado de expansão sticky-local (Decisão 7): sobrevive a reloads. O
+// workspace do par (4.3) abre em modal por cima da árvore, sem trocar de rota.
 const EXPANDED_KEY = 'work.processos.expanded.v1';
 
 function loadExpanded(): Record<string, boolean> {
@@ -270,6 +274,197 @@ function neighbor(card: BoardCard, direction: -1 | 1): BoardStatus | null {
     }
 
     return BOARD_ORDER[index + direction] ?? null;
+}
+
+// Workspace do par processo–empresa (4.3): modal local alimentado pelo
+// endpoint de leitura `work.processes.clients.show`. Estado 100% local (sem
+// troca de rota); Escape/fundo fecham pelo comportamento padrão do UModal,
+// que também prende o foco (trap da lib).
+interface WorkspaceAssignee {
+    id: number;
+    name: string;
+}
+
+interface WorkspaceTask {
+    id: number;
+    title: string;
+    status: string;
+    position: number;
+    priority: string;
+    due_on: string | null;
+    target_date: string | null;
+    assignee: WorkspaceAssignee | null;
+}
+
+interface WorkspacePayload {
+    process: { id: number; title: string; description: string | null };
+    client: { id: number; name: string; tax_id: string };
+    progress: { done: number; total: number };
+    summary: {
+        next_due: string | null;
+        highest_open_priority: string | null;
+        open_count: number;
+        done_count: number;
+    };
+    tasks: WorkspaceTask[];
+    can_create_task: boolean;
+    documents_available: boolean;
+}
+
+const WORKSPACE_STATUS_OPTIONS = [
+    { label: 'Backlog', value: 'backlog' },
+    { label: 'A fazer', value: 'todo' },
+    { label: 'Em andamento', value: 'in_progress' },
+    { label: 'Concluída', value: 'done' },
+];
+
+const workspaceOpen = ref(false);
+const workspaceLoading = ref(false);
+const workspaceError = ref<string | null>(null);
+const workspace = ref<WorkspacePayload | null>(null);
+const workspaceProcessId = ref<number | null>(null);
+const workspaceClientId = ref<number | null>(null);
+const selectedTaskId = ref<number | null>(null);
+const newTaskTitle = ref('');
+const creatingTask = ref(false);
+const movingWorkspaceTaskId = ref<number | null>(null);
+
+const workspacePct = computed<number>(() => {
+    const progress = workspace.value?.progress;
+
+    if (!progress || progress.total === 0) {
+        return 0;
+    }
+
+    return Math.round((progress.done / progress.total) * 100);
+});
+
+// Destino da ação primária conforme o contrato 4.3. A rota de documentos por
+// empresa é owned pelo agente fiscal e não existe neste worktree — o href
+// segue literal e o gate (presente IFF disponível) é o comportamento sob teste.
+const workspaceDocsUrl = computed<string>(() =>
+    workspace.value === null
+        ? ''
+        : `/documents/client/${workspace.value.client.id}`,
+);
+
+async function fetchWorkspace(): Promise<void> {
+    if (workspaceProcessId.value === null || workspaceClientId.value === null) {
+        return;
+    }
+
+    workspaceLoading.value = true;
+    workspaceError.value = null;
+
+    try {
+        const response = await fetch(
+            showWorkspace.url({
+                process: workspaceProcessId.value,
+                client: workspaceClientId.value,
+            }),
+            { headers: { Accept: 'application/json' } },
+        );
+
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}`);
+        }
+
+        workspace.value = (await response.json()) as WorkspacePayload;
+    } catch {
+        workspace.value = null;
+        workspaceError.value =
+            'Não foi possível carregar o workspace. Tente novamente.';
+    } finally {
+        workspaceLoading.value = false;
+    }
+}
+
+function openWorkspace(
+    processId: number,
+    clientId: number,
+    taskId: number | null = null,
+): void {
+    workspaceProcessId.value = processId;
+    workspaceClientId.value = clientId;
+    selectedTaskId.value = taskId;
+    newTaskTitle.value = '';
+    workspaceError.value = null;
+    // Mantém o contexto visível atrás do modal ao fechar.
+    expanded.value[`p:${processId}`] = true;
+    expanded.value[`c:${processId}:${clientId}`] = true;
+    persistExpanded();
+    workspaceOpen.value = true;
+    void fetchWorkspace().then(() => {
+        if (taskId !== null) {
+            void nextTick(() => {
+                document
+                    .querySelector(
+                        `[data-test="work-workspace-task-${taskId}"]`,
+                    )
+                    ?.scrollIntoView({ block: 'nearest' });
+            });
+        }
+    });
+}
+
+function closeWorkspace(): void {
+    workspaceOpen.value = false;
+}
+
+function changeWorkspaceStatus(task: WorkspaceTask, status: string): void {
+    if (
+        movingWorkspaceTaskId.value !== null ||
+        task.status === status ||
+        !['backlog', 'todo', 'in_progress', 'done'].includes(status)
+    ) {
+        return;
+    }
+
+    movingWorkspaceTaskId.value = task.id;
+    router.patch(
+        moveTask.url({ task: task.id }),
+        { status, position: task.position },
+        {
+            preserveScroll: true,
+            onFinish: () => {
+                movingWorkspaceTaskId.value = null;
+                void fetchWorkspace();
+            },
+        },
+    );
+}
+
+function createWorkspaceTask(): void {
+    const title = newTaskTitle.value.trim();
+
+    if (
+        creatingTask.value ||
+        title === '' ||
+        workspaceProcessId.value === null ||
+        workspaceClientId.value === null
+    ) {
+        return;
+    }
+
+    creatingTask.value = true;
+    router.post(
+        storeTask.url(),
+        {
+            work_process_id: workspaceProcessId.value,
+            client_id: workspaceClientId.value,
+            title,
+        },
+        {
+            preserveScroll: true,
+            onSuccess: () => {
+                newTaskTitle.value = '';
+            },
+            onFinish: () => {
+                creatingTask.value = false;
+                void fetchWorkspace();
+            },
+        },
+    );
 }
 </script>
 
@@ -372,49 +567,67 @@ function neighbor(card: BoardCard, direction: -1 | 1): BoardStatus | null {
                                     :data-test="`work-company-${process.id}-${client.id}`"
                                     class="bg-elevated/25 rounded-md p-2"
                                 >
-                                    <UButton
-                                        color="neutral"
-                                        variant="ghost"
-                                        size="sm"
-                                        block
-                                        class="justify-start"
-                                        :aria-expanded="
-                                            isExpanded(
-                                                `c:${process.id}:${client.id}`,
-                                            )
-                                        "
-                                        :data-test="`work-company-toggle-${process.id}-${client.id}`"
-                                        @click="
-                                            toggleExpanded(
-                                                `c:${process.id}:${client.id}`,
-                                            )
-                                        "
-                                    >
-                                        <UIcon
-                                            name="i-lucide-chevron-down"
-                                            class="transition-transform duration-200"
-                                            :class="{
-                                                '-rotate-90': !isExpanded(
+                                    <div class="flex items-center gap-1">
+                                        <UButton
+                                            color="neutral"
+                                            variant="ghost"
+                                            size="sm"
+                                            square
+                                            :aria-expanded="
+                                                isExpanded(
                                                     `c:${process.id}:${client.id}`,
-                                                ),
-                                            }"
-                                        />
-                                        <span
-                                            class="min-w-0 flex-1 truncate text-left"
+                                                )
+                                            "
+                                            :aria-label="`Expandir ${client.razao_social}`"
+                                            :data-test="`work-company-toggle-${process.id}-${client.id}`"
+                                            @click="
+                                                toggleExpanded(
+                                                    `c:${process.id}:${client.id}`,
+                                                )
+                                            "
                                         >
-                                            {{ client.razao_social }}
-                                        </span>
-                                        <span
-                                            class="text-muted text-xs whitespace-nowrap"
+                                            <UIcon
+                                                name="i-lucide-chevron-down"
+                                                class="transition-transform duration-200"
+                                                :class="{
+                                                    '-rotate-90': !isExpanded(
+                                                        `c:${process.id}:${client.id}`,
+                                                    ),
+                                                }"
+                                            />
+                                        </UButton>
+                                        <UButton
+                                            color="neutral"
+                                            variant="ghost"
+                                            size="sm"
+                                            block
+                                            class="min-w-0 flex-1 justify-start"
+                                            :aria-label="`Abrir workspace de ${client.razao_social}`"
+                                            :data-test="`work-workspace-open-${process.id}-${client.id}`"
+                                            @click="
+                                                openWorkspace(
+                                                    process.id,
+                                                    client.id,
+                                                )
+                                            "
                                         >
-                                            {{ client.tasks.length }}
-                                            {{
-                                                client.tasks.length === 1
-                                                    ? 'tarefa'
-                                                    : 'tarefas'
-                                            }}
-                                        </span>
-                                    </UButton>
+                                            <span
+                                                class="min-w-0 flex-1 truncate text-left"
+                                            >
+                                                {{ client.razao_social }}
+                                            </span>
+                                            <span
+                                                class="text-muted text-xs whitespace-nowrap"
+                                            >
+                                                {{ client.tasks.length }}
+                                                {{
+                                                    client.tasks.length === 1
+                                                        ? 'tarefa'
+                                                        : 'tarefas'
+                                                }}
+                                            </span>
+                                        </UButton>
+                                    </div>
 
                                     <ul
                                         v-if="
@@ -430,9 +643,21 @@ function neighbor(card: BoardCard, direction: -1 | 1): BoardStatus | null {
                                             :data-test="`work-task-${task.id}`"
                                             class="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm"
                                         >
-                                            <span class="min-w-0 flex-1">
+                                            <button
+                                                type="button"
+                                                class="min-w-0 flex-1 cursor-pointer truncate text-left hover:underline"
+                                                :aria-label="`Abrir workspace na tarefa ${task.title}`"
+                                                :data-test="`work-workspace-task-open-${task.id}`"
+                                                @click="
+                                                    openWorkspace(
+                                                        process.id,
+                                                        client.id,
+                                                        task.id,
+                                                    )
+                                                "
+                                            >
                                                 {{ task.title }}
-                                            </span>
+                                            </button>
                                             <UBadge
                                                 color="neutral"
                                                 variant="subtle"
@@ -653,4 +878,285 @@ function neighbor(card: BoardCard, direction: -1 | 1): BoardStatus | null {
             </div>
         </template>
     </UDashboardPanel>
+
+    <!-- Workspace do par processo–empresa (4.3): estado local, sem rota. -->
+    <UModal
+        v-model:open="workspaceOpen"
+        :title="workspace?.process.title ?? 'Workspace do par'"
+        description="Progresso, resumo e tarefas do par processo–empresa."
+        :ui="{ content: 'sm:max-w-5xl' }"
+    >
+        <template #body>
+            <!-- UModal não repassa data-test ao diálogo: o id de teste vive
+                neste wrapper interno. -->
+            <div data-test="work-workspace-modal">
+                <div
+                    v-if="workspaceLoading && workspace === null"
+                    class="flex flex-col gap-3"
+                    data-test="work-workspace-loading"
+                >
+                    <USkeleton class="h-6 w-2/3" />
+                    <USkeleton class="h-3 w-full" />
+                    <div class="grid gap-4 md:grid-cols-2">
+                        <USkeleton class="h-40 w-full" />
+                        <USkeleton class="h-40 w-full" />
+                    </div>
+                </div>
+
+                <div
+                    v-else-if="workspaceError !== null"
+                    class="flex flex-col gap-3"
+                    data-test="work-workspace-error"
+                >
+                    <UAlert
+                        color="error"
+                        variant="soft"
+                        title="Não foi possível carregar o workspace"
+                        :description="workspaceError"
+                    />
+                    <UButton
+                        color="neutral"
+                        variant="outline"
+                        icon="i-lucide-rotate-cw"
+                        label="Tentar novamente"
+                        class="self-start"
+                        data-test="work-workspace-retry"
+                        @click="fetchWorkspace()"
+                    />
+                </div>
+
+                <div
+                    v-else-if="workspace !== null"
+                    class="grid gap-6 md:grid-cols-2"
+                >
+                    <section aria-label="Processo operacional">
+                        <p
+                            class="text-muted text-xs font-medium tracking-wide uppercase"
+                        >
+                            Processo Operacional
+                        </p>
+                        <h3
+                            class="mt-1 text-base font-semibold"
+                            data-test="work-workspace-title"
+                        >
+                            {{ workspace.process.title }}
+                        </h3>
+
+                        <div class="mt-3">
+                            <div
+                                class="flex items-baseline justify-between gap-2 text-sm"
+                            >
+                                <span class="text-muted">Progresso</span>
+                                <span data-test="work-workspace-progress">
+                                    {{ workspace.progress.done }} de
+                                    {{ workspace.progress.total }}
+                                    {{
+                                        workspace.progress.total === 1
+                                            ? 'concluída'
+                                            : 'concluídas'
+                                    }}
+                                </span>
+                            </div>
+                            <UProgress
+                                :model-value="workspacePct"
+                                size="sm"
+                                class="mt-1"
+                                data-test="work-workspace-progressbar"
+                            />
+                        </div>
+
+                        <div
+                            class="border-default mt-4 rounded-md border p-3"
+                            data-test="work-workspace-client"
+                        >
+                            <p
+                                class="text-muted text-xs font-medium tracking-wide uppercase"
+                            >
+                                Cliente Monitorado
+                            </p>
+                            <p class="mt-1 font-medium">
+                                {{ workspace.client.name }}
+                            </p>
+                            <p class="text-muted text-sm tabular-nums">
+                                {{ workspace.client.tax_id }}
+                            </p>
+                        </div>
+
+                        <p
+                            v-if="workspace.process.description"
+                            class="mt-3 text-sm"
+                            data-test="work-workspace-description"
+                        >
+                            {{ workspace.process.description }}
+                        </p>
+
+                        <div class="mt-4" data-test="work-workspace-summary">
+                            <p
+                                class="text-muted text-xs font-medium tracking-wide uppercase"
+                            >
+                                Resumo operacional
+                            </p>
+                            <dl class="mt-2 flex flex-col gap-1.5 text-sm">
+                                <div
+                                    class="flex items-baseline justify-between gap-2"
+                                >
+                                    <dt class="text-muted">
+                                        Próximo vencimento
+                                    </dt>
+                                    <dd>
+                                        {{
+                                            workspace.summary.next_due === null
+                                                ? 'Sem vencimentos em aberto'
+                                                : formatDate(
+                                                      workspace.summary
+                                                          .next_due,
+                                                  )
+                                        }}
+                                    </dd>
+                                </div>
+                                <div
+                                    class="flex items-baseline justify-between gap-2"
+                                >
+                                    <dt class="text-muted">
+                                        Prioridade mais alta em aberto
+                                    </dt>
+                                    <dd>
+                                        {{
+                                            workspace.summary
+                                                .highest_open_priority === null
+                                                ? '—'
+                                                : priorityLabel(
+                                                      workspace.summary
+                                                          .highest_open_priority,
+                                                  )
+                                        }}
+                                    </dd>
+                                </div>
+                                <div
+                                    class="flex items-baseline justify-between gap-2"
+                                >
+                                    <dt class="text-muted">Em aberto</dt>
+                                    <dd>{{ workspace.summary.open_count }}</dd>
+                                </div>
+                                <div
+                                    class="flex items-baseline justify-between gap-2"
+                                >
+                                    <dt class="text-muted">Concluídas</dt>
+                                    <dd>{{ workspace.summary.done_count }}</dd>
+                                </div>
+                            </dl>
+                        </div>
+                    </section>
+
+                    <section aria-label="Tarefas operacionais">
+                        <p
+                            class="text-muted text-xs font-medium tracking-wide uppercase"
+                        >
+                            Tarefas Operacionais
+                        </p>
+
+                        <ul
+                            v-if="workspace.tasks.length > 0"
+                            class="mt-2 flex flex-col gap-2"
+                        >
+                            <li
+                                v-for="task in workspace.tasks"
+                                :key="task.id"
+                                :data-test="`work-workspace-task-${task.id}`"
+                                class="border-default rounded-md border p-2.5"
+                                :class="{
+                                    'border-primary ring-primary/30 ring-1':
+                                        selectedTaskId === task.id,
+                                }"
+                            >
+                                <p class="text-sm font-medium">
+                                    {{ task.title }}
+                                </p>
+                                <p class="text-muted mt-0.5 text-xs">
+                                    {{ formatDate(task.due_on) }} ·
+                                    {{
+                                        task.assignee?.name ?? 'Sem responsável'
+                                    }}
+                                </p>
+                                <div
+                                    class="mt-2 flex flex-wrap items-center gap-1.5"
+                                >
+                                    <USelect
+                                        :model-value="task.status"
+                                        :items="WORKSPACE_STATUS_OPTIONS"
+                                        size="xs"
+                                        :disabled="
+                                            movingWorkspaceTaskId === task.id
+                                        "
+                                        :aria-label="`Situação de ${task.title}`"
+                                        :data-test="`work-workspace-status-${task.id}`"
+                                        @update:model-value="
+                                            changeWorkspaceStatus(
+                                                task,
+                                                String($event),
+                                            )
+                                        "
+                                    />
+                                    <UBadge color="neutral" variant="outline">
+                                        {{ priorityLabel(task.priority) }}
+                                    </UBadge>
+                                    <UBadge color="neutral" variant="subtle">
+                                        {{ taskStatusLabel(task.status) }}
+                                    </UBadge>
+                                </div>
+                            </li>
+                        </ul>
+                        <p
+                            v-else
+                            class="text-muted mt-2 text-sm"
+                            data-test="work-workspace-empty"
+                        >
+                            Nenhuma tarefa operacional para este par.
+                        </p>
+
+                        <div
+                            v-if="workspace.can_create_task"
+                            class="mt-3 flex gap-2"
+                        >
+                            <UInput
+                                v-model="newTaskTitle"
+                                class="min-w-0 flex-1"
+                                placeholder="Nova tarefa operacional…"
+                                :aria-label="'Título da nova tarefa operacional'"
+                                data-test="work-workspace-new"
+                                @keyup.enter="createWorkspaceTask()"
+                            />
+                            <UButton
+                                icon="i-lucide-plus"
+                                label="Adicionar"
+                                :loading="creatingTask"
+                                :disabled="newTaskTitle.trim() === ''"
+                                data-test="work-workspace-create"
+                                @click="createWorkspaceTask()"
+                            />
+                        </div>
+                    </section>
+                </div>
+            </div>
+        </template>
+
+        <template #footer>
+            <div class="flex w-full items-center justify-between gap-2">
+                <UButton
+                    color="neutral"
+                    variant="ghost"
+                    label="Fechar"
+                    data-test="work-workspace-close"
+                    @click="closeWorkspace()"
+                />
+                <UButton
+                    v-if="workspace?.documents_available"
+                    :to="workspaceDocsUrl"
+                    icon="i-lucide-file-text"
+                    label="Ver documentos"
+                    data-test="work-workspace-docs"
+                />
+            </div>
+        </template>
+    </UModal>
 </template>

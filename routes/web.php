@@ -64,6 +64,7 @@ Route::middleware(['auth', 'verified'])->group(function () {
 
     Route::resource('work/processes', WorkProcessController::class)->names('work.processes');
     Route::put('work/processes/{process}/clients', [WorkProcessController::class, 'updateClients'])->name('work.processes.clients.update');
+    Route::get('work/processes/{process}/clients/{client}', [WorkProcessController::class, 'showClient'])->name('work.processes.clients.show');
     Route::get('work/processes/{process}/association-preview', [WorkProcessController::class, 'associationPreview'])->name('work.processes.association-preview');
 
     Route::get('work/catalog', [WorkCatalogController::class, 'index'])->name('work.catalog.index');
