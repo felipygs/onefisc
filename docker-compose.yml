@@ -1,66 +1,151 @@
-name: oniscan-app
+name: onefisc
+
+x-backend-env: &backend-env
+    DB_CONNECTION: pgsql
+    DB_HOST: postgres
+    DB_PORT: 5432
+    DB_DATABASE: ${DB_DATABASE:-onefisc}
+    DB_USERNAME: ${DB_USERNAME:-onefisc}
+    DB_PASSWORD: ${DB_PASSWORD:-secret}
+    REDIS_CLIENT: phpredis
+    REDIS_HOST: redis
+    REDIS_PORT: 6379
+    NATS_URL: nats://nats:4222
+    PHP_CLI_SERVER_WORKERS: 4
+
+x-backend: &backend
+    image: onefisc-backend:dev
+    build:
+        context: ./backend
+        args:
+            APP_UID: ${APP_UID:-1001}
+            APP_GID: ${APP_GID:-1001}
+    working_dir: /app
+    volumes:
+        - ./backend:/app
+        - backend-vendor:/app/vendor
+    networks:
+        - app
+    init: true
+    restart: unless-stopped
+
+x-frontend: &frontend
+    image: onefisc-frontend:dev
+    build:
+        context: ./frontend
+        args:
+            APP_UID: ${APP_UID:-1001}
+            APP_GID: ${APP_GID:-1001}
+    working_dir: /app
+    volumes:
+        - ./frontend:/app
+        - frontend-node-modules:/app/node_modules
+    environment:
+        NUXT_TELEMETRY_DISABLED: "1"
+    networks:
+        - app
+    init: true
+    restart: unless-stopped
 
 services:
     postgres:
-        image: 'postgres:18-alpine'
+        image: postgres:18-alpine
         restart: unless-stopped
         ports:
-            - '127.0.0.1:5432:5432'
+            - "127.0.0.1:5432:5432"
         environment:
-            POSTGRES_DB: '${DB_DATABASE:-laravel}'
-            POSTGRES_USER: '${DB_USERNAME:-laravel}'
-            POSTGRES_PASSWORD: '${DB_PASSWORD:-password}'
+            POSTGRES_DB: ${DB_DATABASE:-onefisc}
+            POSTGRES_USER: ${DB_USERNAME:-onefisc}
+            POSTGRES_PASSWORD: ${DB_PASSWORD:-secret}
         volumes:
-            - 'pgsql:/var/lib/postgresql'
+            - pgdata:/var/lib/postgresql
         networks:
             - app
         healthcheck:
-            test: ['CMD-SHELL', 'pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}']
-            interval: 5s
-            timeout: 5s
-            retries: 5
-
-    redis:
-        image: 'redis:7-alpine'
-        restart: unless-stopped
-        ports:
-            - '127.0.0.1:6379:6379'
-        volumes:
-            - 'redis:/data'
-        networks:
-            - app
-        healthcheck:
-            test: ['CMD', 'redis-cli', 'ping']
-            interval: 5s
-            timeout: 5s
-            retries: 5
-
-    # NATS com JetStream (-js). Sem TLS: suficiente para dev local.
-    nats:
-        image: 'nats:2.10-alpine'
-        restart: unless-stopped
-        command: ['-js', '-m', '8222']
-        ports:
-            - '127.0.0.1:4222:4222'
-            - '127.0.0.1:8222:8222'
-        volumes:
-            - 'nats:/data'
-        networks:
-            - app
-        healthcheck:
-            test: ['CMD-SHELL', 'wget -qO- http://127.0.0.1:8222/healthz >/dev/null']
+            test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
             interval: 5s
             timeout: 5s
             retries: 10
 
+    redis:
+        image: redis:8-alpine
+        restart: unless-stopped
+        command: ["redis-server", "--appendonly", "yes"]
+        ports:
+            - "127.0.0.1:6379:6379"
+        volumes:
+            - redisdata:/data
+        networks:
+            - app
+        healthcheck:
+            test: ["CMD", "redis-cli", "ping"]
+            interval: 5s
+            timeout: 5s
+            retries: 10
+
+    nats:
+        image: nats:2-alpine
+        restart: unless-stopped
+        command: ["-js", "-m", "8222"]
+        ports:
+            - "127.0.0.1:4222:4222"
+            - "127.0.0.1:8222:8222"
+        volumes:
+            - natsdata:/data
+        networks:
+            - app
+        healthcheck:
+            test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8222/healthz"]
+            interval: 5s
+            timeout: 5s
+            retries: 10
+
+    backend:
+        <<: *backend
+        command: ["php", "artisan", "serve", "--host=0.0.0.0", "--port=8000"]
+        environment:
+            <<: *backend-env
+            RUN_MIGRATIONS: "1"
+        ports:
+            - "127.0.0.1:8000:8000"
+        depends_on:
+            postgres:
+                condition: service_healthy
+        healthcheck:
+            test: ["CMD", "php", "-r", "exit(@file_get_contents('http://127.0.0.1:8000/up') === false ? 1 : 0);"]
+            interval: 5s
+            timeout: 5s
+            retries: 12
+            start_period: 120s
+
+    queue:
+        <<: *backend
+        command: ["php", "artisan", "queue:listen", "--tries=1", "--timeout=0"]
+        environment:
+            <<: *backend-env
+        depends_on:
+            backend:
+                condition: service_healthy
+
+    frontend:
+        <<: *frontend
+        command: ["pnpm", "dev", "--host", "0.0.0.0", "--port", "3000"]
+        ports:
+            - "127.0.0.1:3000:3000"
+        healthcheck:
+            test: ["CMD", "node", "-e", "require('net').connect(3000,'127.0.0.1').on('connect',()=>process.exit(0)).on('error',()=>process.exit(1))"]
+            interval: 5s
+            timeout: 5s
+            retries: 12
+            start_period: 120s
+
+volumes:
+    pgdata:
+    redisdata:
+    natsdata:
+    backend-vendor:
+    frontend-node-modules:
+
 networks:
     app:
         driver: bridge
-
-volumes:
-    pgsql:
-        driver: local
-    redis:
-        driver: local
-    nats:
-        driver: local
