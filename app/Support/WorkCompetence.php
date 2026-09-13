@@ -4,9 +4,11 @@ namespace App\Support;
 
 use App\Models\User;
 use App\Models\WorkProcess;
+use App\Models\WorkProcessTaskDefinition;
 use App\Models\WorkTask;
 use App\Policies\WorkProcessPolicy;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use InvalidArgumentException;
@@ -100,8 +102,14 @@ class WorkCompetence
      * for X are skipped, and the rest are inserted with the non-null
      * competence so the materialization unique index converges racing
      * opens into a single instance. New rows reuse the 2.2 cascade status
-     * and copy priority/assignee/department from the definition; dates stay
-     * NULL (Task 3.2 owns dating).
+     * and copy priority/assignee/department from the definition with the
+     * due date from the shared WorkTask::materializedRow builder (3.2).
+     *
+     * Lazy backfill (3.2, no data migration by decision): rows stored dateless
+     * before 3.2 (non-null competence + null due_on) get their computed dates
+     * on the next open of that same competence+process, in this same
+     * transaction. Timeless NULL-competence rows stay dateless forever —
+     * timeless means no anchor month.
      *
      * Write visibility matches the reads: managers materialize every
      * association of the visible processes, while collaborators only
@@ -142,11 +150,11 @@ class WorkCompetence
         $assignedClientIds = null;
 
         if (! $manager) {
-            $assignedClientIds = DB::table('client_user as cu')
+            $assignedClientIds = array_values(DB::table('client_user as cu')
                 ->join('clients as c', 'c.id', '=', 'cu.client_id')
                 ->where('c.account_id', $accountId)
                 ->where('cu.user_id', $user?->id)
-                ->pluck('cu.client_id')->map(fn ($id) => (int) $id)->all();
+                ->pluck('cu.client_id')->map(fn ($id) => (int) $id)->all());
         }
 
         DB::transaction(function () use ($accountId, $competence, $processIds, $assignedClientIds): void {
@@ -185,7 +193,7 @@ class WorkCompetence
             return;
         }
 
-        $clientIds = $locked->processClients()->pluck('client_id')->map(fn ($id) => (int) $id)->all();
+        $clientIds = array_values($locked->processClients()->pluck('client_id')->map(fn ($id) => (int) $id)->all());
 
         if ($assignedClientIds !== null) {
             $clientIds = array_values(array_intersect($clientIds, $assignedClientIds));
@@ -234,28 +242,74 @@ class WorkCompetence
                     continue;
                 }
 
-                $inserts[] = [
-                    'account_id' => $accountId,
-                    'work_process_id' => $locked->id,
-                    'client_id' => $clientId,
-                    'work_process_task_definition_id' => $definition->id,
-                    'title' => $definition->title,
-                    'status' => $locked->cascade_execution && (int) $definition->position !== $firstPosition ? 'backlog' : 'todo',
-                    'position' => $definition->position,
-                    'priority' => $definition->priority ?? 'medium',
-                    'assigned_user_id' => $definition->default_assigned_user_id,
-                    'department_id' => $definition->department_id,
-                    'competence' => $competence,
-                    'start_at' => null,
-                    'due_on' => null,
-                    'created_at' => $now,
-                    'updated_at' => $now,
-                ];
+                $inserts[] = WorkTask::materializedRow($locked, $definition, $accountId, $clientId, $competence, $firstPosition, $now);
             }
         }
 
         if ($inserts !== []) {
             WorkTask::insertOrIgnore($inserts);
+        }
+
+        self::backfillDates($locked, $definitions, $clientIds, $competence, $now);
+    }
+
+    /**
+     * Lazy backfill for pre-3.2 dateless rows (same transaction, same
+     * competence+process, reachable pairs only): undated dated-competence
+     * rows whose effective due config yields a date get it now. Timeless
+     * rows are never touched (no anchor month). No-op when nothing matches.
+     *
+     * @param  Collection<int, WorkProcessTaskDefinition>  $definitions
+     * @param  list<int>  $clientIds
+     */
+    protected static function backfillDates(
+        WorkProcess $process,
+        Collection $definitions,
+        array $clientIds,
+        string $competence,
+        \DateTimeInterface $now,
+    ): void {
+        if ($clientIds === [] || $definitions->isEmpty()) {
+            return;
+        }
+
+        $definitionsById = $definitions->keyBy('id');
+
+        $undated = WorkTask::query()
+            ->where('work_tasks.work_process_id', $process->id)
+            ->where('work_tasks.competence', $competence)
+            ->whereNull('work_tasks.due_on')
+            ->whereIn('work_tasks.client_id', $clientIds)
+            ->whereNotNull('work_tasks.work_process_task_definition_id')
+            ->get(['work_tasks.id', 'work_tasks.work_process_task_definition_id']);
+
+        if ($undated->isEmpty()) {
+            return;
+        }
+
+        $idsByDefinition = [];
+
+        foreach ($undated as $row) {
+            $idsByDefinition[(int) $row->work_process_task_definition_id][] = (int) $row->id;
+        }
+
+        foreach ($idsByDefinition as $definitionId => $ids) {
+            $definition = $definitionsById->get($definitionId);
+
+            if (! $definition instanceof WorkProcessTaskDefinition) {
+                continue;
+            }
+
+            $dates = WorkDueDates::forTask($process, $definition, $competence);
+
+            if ($dates['due_on'] === null) {
+                continue;
+            }
+
+            WorkTask::query()->whereIn('id', $ids)->update([
+                'due_on' => $dates['due_on'],
+                'updated_at' => $now,
+            ]);
         }
     }
 }

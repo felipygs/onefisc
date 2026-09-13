@@ -135,7 +135,8 @@ class WorkProcessController extends Controller
      * Apply the association effective set and materialize tasks. An explicit
      * `client_ids` list overrides the rules stored on the process; otherwise
      * the set is computed from regimes + tags + extras − excluded.
-     * Competence and dates stay null here — dating belongs to Task 3.1/3.2.
+     * New rows go through the shared WorkTask::materializedRow builder with
+     * null competence (timeless ⇒ dateless, by decision).
      */
     public function updateClients(UpdateWorkProcessClientsRequest $request, int|string $process): RedirectResponse
     {
@@ -341,6 +342,8 @@ class WorkProcessController extends Controller
      * Create one task per current definition for newly associated clients,
      * skipping rows already materialized so re-applies converge. Cascade on
      * holds later-position tasks in `backlog`; cascade off leaves all `todo`.
+     * Dates come from the shared WorkTask::materializedRow builder (null
+     * competence here ⇒ timeless ⇒ dateless, by decision).
      *
      * @param  list<int>  $clientIds
      * @param  Collection<int, WorkProcessTaskDefinition>  $definitions
@@ -373,23 +376,7 @@ class WorkProcessController extends Controller
                     continue;
                 }
 
-                $rows[] = [
-                    'account_id' => $accountId,
-                    'work_process_id' => $process->id,
-                    'client_id' => $clientId,
-                    'work_process_task_definition_id' => $definition->id,
-                    'title' => $definition->title,
-                    'status' => $process->cascade_execution && (int) $definition->position !== $firstPosition ? 'backlog' : 'todo',
-                    'position' => $definition->position,
-                    'priority' => $definition->priority ?? 'medium',
-                    'assigned_user_id' => $definition->default_assigned_user_id,
-                    'department_id' => $definition->department_id,
-                    'competence' => null,
-                    'start_at' => null,
-                    'due_on' => null,
-                    'created_at' => $now,
-                    'updated_at' => $now,
-                ];
+                $rows[] = WorkTask::materializedRow($process, $definition, $accountId, $clientId, null, $firstPosition, $now);
             }
         }
 

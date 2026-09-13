@@ -238,7 +238,7 @@ class WorkViewController extends Controller
             ->forCompetence($competence)
             ->whereIn('work_tasks.work_process_id', $processIds)
             ->whereIn('work_tasks.client_id', $clientIds)
-            ->with(['assignee:id,name'])
+            ->with(['assignee:id,name', 'process:id,target_lead_days'])
             ->orderBy('work_tasks.position')
             ->orderBy('work_tasks.id')
             ->get();
@@ -264,6 +264,7 @@ class WorkViewController extends Controller
             'position' => $task->position,
             'priority' => $task->priority,
             'due_on' => $task->due_on?->format('Y-m-d'),
+            'target_date' => $task->target_date,
             'assignee' => $task->assignee === null ? null : [
                 'id' => $task->assignee->id,
                 'name' => $task->assignee->name,
@@ -286,7 +287,7 @@ class WorkViewController extends Controller
         )
             ->forCompetence($competence)
             ->with([
-                'process:id,title',
+                'process:id,title,target_lead_days',
                 'client:id,razao_social',
                 'assignee:id,name',
             ])
@@ -306,6 +307,7 @@ class WorkViewController extends Controller
                 'position' => $task->position,
                 'priority' => $task->priority,
                 'due_on' => $task->due_on?->format('Y-m-d'),
+                'target_date' => $task->target_date,
                 'process' => $task->process === null ? null : [
                     'id' => $task->process->id,
                     'title' => $task->process->title,
