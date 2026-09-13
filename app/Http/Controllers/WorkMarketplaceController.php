@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\WorkMarketplaceProcess;
 use App\Models\WorkProcess;
+use App\Services\AuditService;
 use App\Support\CurrentAccount;
 use Illuminate\Database\QueryException;
 use Illuminate\Http\JsonResponse;
@@ -60,7 +61,7 @@ class WorkMarketplaceController extends Controller
      * association tab (resolves 4.1's deferred I2: Inertia follows the
      * redirect instead of showing a stale Adicionar).
      */
-    public function install(int|string $listing): RedirectResponse
+    public function install(int|string $listing, AuditService $audit): RedirectResponse
     {
         $account = CurrentAccount::resolve();
         abort_unless($account !== null, 404);
@@ -72,6 +73,11 @@ class WorkMarketplaceController extends Controller
         // String-keyed: `marketplace_process_id` is a varchar guard column,
         // so every read and write casts the listing id the same way.
         $marketplaceKey = (string) $marketplace->id;
+
+        $alreadyInstalled = WorkProcess::query()
+            ->where('work_processes.account_id', $account->id)
+            ->where('work_processes.marketplace_process_id', $marketplaceKey)
+            ->exists();
 
         try {
             $process = DB::transaction(function () use ($account, $marketplace, $marketplaceKey): WorkProcess {
@@ -111,11 +117,24 @@ class WorkMarketplaceController extends Controller
                 throw $exception;
             }
 
+            $alreadyInstalled = true;
+
             $process = WorkProcess::query()
                 ->where('work_processes.account_id', $account->id)
                 ->where('work_processes.marketplace_process_id', $marketplaceKey)
                 ->firstOrFail();
         }
+
+        $audit->record(
+            action: 'work.marketplace.installed',
+            targetAccountId: $account->id,
+            metadata: [
+                'listing_id' => $marketplace->id,
+                'listing_slug' => $marketplace->slug,
+                'process_id' => $process->id,
+                'already_installed' => $alreadyInstalled,
+            ]
+        );
 
         return redirect()
             ->route('work.catalog.show', ['process' => $process->id, 'tab' => 'association'], 303)

@@ -13,6 +13,7 @@ use App\Models\WorkProcessTaskDefinition;
 use App\Models\WorkTask;
 use App\Policies\WorkProcessPolicy;
 use App\Policies\WorkTaskPolicy;
+use App\Services\AuditService;
 use App\Support\CurrentAccount;
 use App\Support\WorkAssociation;
 use Illuminate\Database\Eloquent\Builder;
@@ -63,7 +64,7 @@ class WorkProcessController extends Controller
         return Inertia::render('Work/Processes/Create');
     }
 
-    public function store(StoreWorkProcessRequest $request): RedirectResponse
+    public function store(StoreWorkProcessRequest $request, AuditService $audit): RedirectResponse
     {
         $account = CurrentAccount::resolve();
         abort_unless($account !== null, 404);
@@ -74,17 +75,30 @@ class WorkProcessController extends Controller
 
         // Origin is always manual here; any incoming `source` is ignored and
         // never reaches validated data. Marketplace installs land in Task 2.5.
-        DB::transaction(function () use ($account, $validated, $definitions): void {
-            $process = WorkProcess::create([
+        $process = DB::transaction(function () use ($account, $validated, $definitions): WorkProcess {
+            $created = WorkProcess::create([
                 ...$validated,
                 'account_id' => $account->id,
                 'source' => 'manual',
             ]);
 
             if (is_array($definitions)) {
-                $this->syncDefinitions($process, $definitions);
+                $this->syncDefinitions($created, $definitions);
             }
+
+            return $created;
         });
+
+        $audit->record(
+            action: 'work.process.created',
+            targetAccountId: $account->id,
+            metadata: [
+                'process_id' => $process->id,
+                'title' => $process->title,
+                'source' => 'manual',
+                'definitions_count' => $process->definitions()->count(),
+            ]
+        );
 
         return redirect()->route('work.processes.index')->with('status', 'Processo criado.');
     }
@@ -113,7 +127,7 @@ class WorkProcessController extends Controller
         ]);
     }
 
-    public function update(UpdateWorkProcessRequest $request, int|string $process): RedirectResponse
+    public function update(UpdateWorkProcessRequest $request, int|string $process, AuditService $audit): RedirectResponse
     {
         $account = CurrentAccount::resolve();
         abort_unless($account !== null, 404);
@@ -121,6 +135,10 @@ class WorkProcessController extends Controller
         $validated = $request->validated();
         $definitions = $validated['definitions'] ?? null;
         unset($validated['definitions']);
+
+        // Checklist replace rides this same event (checklist_replaced +
+        // definitions_count) so one update emits exactly one audit row.
+        $checklistReplaced = is_array($definitions);
 
         DB::transaction(function () use ($model, $validated, $definitions): void {
             $model->update($validated);
@@ -130,19 +148,39 @@ class WorkProcessController extends Controller
             }
         });
 
+        $audit->record(
+            action: 'work.process.updated',
+            targetAccountId: $account->id,
+            metadata: [
+                'process_id' => $model->id,
+                'title' => $model->title,
+                'checklist_replaced' => $checklistReplaced,
+                'definitions_count' => $model->definitions()->count(),
+            ]
+        );
+
         return redirect()->route('work.processes.index')->with('status', 'Processo atualizado.');
     }
 
-    public function destroy(int|string $process): RedirectResponse
+    public function destroy(int|string $process, AuditService $audit): RedirectResponse
     {
         $account = CurrentAccount::resolve();
         abort_unless($account !== null, 404);
         $model = $this->findProcess($process, $account->id);
         Gate::authorize('delete', $model);
 
+        $processId = $model->id;
+        $title = $model->title;
+
         // Hard delete: DB cascades remove definitions, associations and
         // tasks. Soft-retire stays available through the `archived` status.
         $model->delete();
+
+        $audit->record(
+            action: 'work.process.deleted',
+            targetAccountId: $account->id,
+            metadata: ['process_id' => $processId, 'title' => $title]
+        );
 
         return redirect()->route('work.processes.index')->with('status', 'Processo removido.');
     }
@@ -154,7 +192,7 @@ class WorkProcessController extends Controller
      * New rows go through the shared WorkTask::materializedRow builder with
      * null competence (timeless ⇒ dateless, by decision).
      */
-    public function updateClients(UpdateWorkProcessClientsRequest $request, int|string $process): RedirectResponse
+    public function updateClients(UpdateWorkProcessClientsRequest $request, int|string $process, AuditService $audit): RedirectResponse
     {
         $account = CurrentAccount::resolve();
         abort_unless($account !== null, 404);
@@ -162,7 +200,8 @@ class WorkProcessController extends Controller
 
         $validated = $request->validated();
 
-        DB::transaction(function () use ($model, $account, $validated): void {
+        /** @var array{added: list<int>, removed: list<int>, effective: list<int>} $summary */
+        $summary = DB::transaction(function () use ($model, $account, $validated): array {
             // Serialize concurrent applies per process: the NULL-competence
             // unique key cannot dedupe undated rows (NULLs compare distinct
             // in SQLite/Postgres/MySQL), so this row lock — not the index —
@@ -205,7 +244,28 @@ class WorkProcessController extends Controller
                     ->delete();
                 $locked->processClients()->where('client_id', $clientId)->delete();
             }
+
+            // Materialized rows go through bulk insertOrIgnore (no model
+            // events), so this single summary row is the whole trail for the
+            // apply — per-task rows would only be noise here.
+            return [
+                'added' => $fresh,
+                'removed' => $removed,
+                'effective' => $locked->processClients()->pluck('client_id')->map(fn ($id) => (int) $id)->sort()->values()->all(),
+            ];
         });
+
+        $audit->record(
+            action: 'work.process.association_applied',
+            targetAccountId: $account->id,
+            metadata: [
+                'process_id' => $model->id,
+                'added_client_ids' => $summary['added'],
+                'removed_client_ids' => $summary['removed'],
+                'effective_client_ids' => $summary['effective'],
+                'effective_count' => count($summary['effective']),
+            ]
+        );
 
         return redirect()->back();
     }

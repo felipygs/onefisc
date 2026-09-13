@@ -8,6 +8,7 @@ use App\Http\Requests\UpdateWorkTaskRequest;
 use App\Models\User;
 use App\Models\WorkTask;
 use App\Policies\WorkTaskPolicy;
+use App\Services\AuditService;
 use App\Support\CurrentAccount;
 use App\Support\WorkCompetence;
 use Illuminate\Database\Eloquent\Builder;
@@ -119,7 +120,7 @@ class WorkTaskController extends Controller
      * cannot cover NULL definition ids), returning the existing row instead
      * of duplicating. Omitted priority stores `medium`.
      */
-    public function store(StoreWorkTaskRequest $request): RedirectResponse
+    public function store(StoreWorkTaskRequest $request, AuditService $audit): RedirectResponse
     {
         $account = CurrentAccount::resolve();
         abort_unless($account !== null, 404);
@@ -127,7 +128,9 @@ class WorkTaskController extends Controller
         $validated = $request->validated();
         $title = trim((string) $validated['title']);
 
-        DB::transaction(function () use ($account, $validated, $title): void {
+        // Dedupe hits converge to the existing row and audit nothing — no new
+        // task exists, so there is no creation to record.
+        $created = DB::transaction(function () use ($account, $validated, $title): ?WorkTask {
             $existing = WorkTask::query()
                 ->where('work_tasks.account_id', $account->id)
                 ->where('work_tasks.work_process_id', $validated['work_process_id'])
@@ -138,10 +141,10 @@ class WorkTaskController extends Controller
                 ->first();
 
             if ($existing instanceof WorkTask) {
-                return;
+                return null;
             }
 
-            WorkTask::create([
+            return WorkTask::create([
                 'account_id' => $account->id,
                 'work_process_id' => $validated['work_process_id'],
                 'client_id' => $validated['client_id'],
@@ -157,6 +160,19 @@ class WorkTaskController extends Controller
                 'due_on' => $validated['due_on'] ?? null,
             ]);
         });
+
+        if ($created instanceof WorkTask) {
+            $audit->record(
+                action: 'work.task.created',
+                targetAccountId: $account->id,
+                metadata: [
+                    'task_id' => $created->id,
+                    'process_id' => $created->work_process_id,
+                    'client_id' => $created->client_id,
+                    'title' => $created->title,
+                ]
+            );
+        }
 
         return redirect()->back()->with('status', 'Tarefa criada.');
     }
@@ -189,7 +205,7 @@ class WorkTaskController extends Controller
      * Definition linkage is immutable: any `definition_id` input is ignored
      * because it never reaches validated data.
      */
-    public function update(UpdateWorkTaskRequest $request, int|string $task): RedirectResponse
+    public function update(UpdateWorkTaskRequest $request, int|string $task, AuditService $audit): RedirectResponse
     {
         $account = CurrentAccount::resolve();
         abort_unless($account !== null, 404);
@@ -202,17 +218,41 @@ class WorkTaskController extends Controller
 
         $model->update($validated);
 
+        $audit->record(
+            action: 'work.task.updated',
+            targetAccountId: $account->id,
+            metadata: [
+                'task_id' => $model->id,
+                'process_id' => $model->work_process_id,
+                'client_id' => $model->client_id,
+                'title' => $model->title,
+            ]
+        );
+
         return redirect()->back()->with('status', 'Tarefa atualizada.');
     }
 
-    public function destroy(int|string $task): RedirectResponse
+    public function destroy(int|string $task, AuditService $audit): RedirectResponse
     {
         $account = CurrentAccount::resolve();
         abort_unless($account !== null, 404);
         $model = $this->findTask($task, $account->id);
         Gate::authorize('delete', $model);
 
+        $metadata = [
+            'task_id' => $model->id,
+            'process_id' => $model->work_process_id,
+            'client_id' => $model->client_id,
+            'title' => $model->title,
+        ];
+
         $model->delete();
+
+        $audit->record(
+            action: 'work.task.deleted',
+            targetAccountId: $account->id,
+            metadata: $metadata
+        );
 
         return redirect()->back()->with('status', 'Tarefa removida.');
     }
@@ -221,12 +261,14 @@ class WorkTaskController extends Controller
      * Atomic board move: status and position update together in one
      * transaction so the board never observes a half-moved task.
      */
-    public function move(MoveWorkTaskRequest $request, int|string $task): RedirectResponse
+    public function move(MoveWorkTaskRequest $request, int|string $task, AuditService $audit): RedirectResponse
     {
         $account = CurrentAccount::resolve();
         abort_unless($account !== null, 404);
         $model = $this->findTask($task, $account->id);
         $validated = $request->validated();
+
+        $fromStatus = $model->status;
 
         DB::transaction(function () use ($model, $validated): void {
             $model->update([
@@ -234,6 +276,19 @@ class WorkTaskController extends Controller
                 'position' => $validated['position'],
             ]);
         });
+
+        $audit->record(
+            action: 'work.task.moved',
+            targetAccountId: $account->id,
+            metadata: [
+                'task_id' => $model->id,
+                'process_id' => $model->work_process_id,
+                'client_id' => $model->client_id,
+                'from_status' => $fromStatus,
+                'to_status' => $validated['status'],
+                'position' => $validated['position'],
+            ]
+        );
 
         return redirect()->back()->with('status', 'Tarefa movida.');
     }
