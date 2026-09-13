@@ -2,8 +2,11 @@
 import type { Table } from '@tanstack/table-core';
 import { Head, router } from '@inertiajs/vue3';
 import { ref } from 'vue';
+import DanfeModal from '@/components/documents/DanfeModal.vue';
+import DetailSlideover from '@/components/documents/DetailSlideover.vue';
 import DocumentsTable from '@/components/documents/DocumentsTable.vue';
 import FiltersToolbar from '@/components/documents/FiltersToolbar.vue';
+import { danfe, download } from '@/routes/fiscal';
 import { all as documentsAll } from '@/routes/documents';
 import type {
     DocumentFilters,
@@ -83,6 +86,139 @@ function goToPage(nextPage: number): void {
         { preserveScroll: true, preserveState: true },
     );
 }
+
+// Task 4.4 overlays: the table emits row actions (disabled without the
+// artifact); listening also switches the actions column on.
+const toast = useToast();
+
+const selected = ref<FiscalDocumentRow | null>(null);
+const detailOpen = ref(false);
+
+const danfeOpen = ref(false);
+const danfeTitle = ref('DANFE');
+const danfePdfUrl = ref<string | null>(null);
+const danfeDownloadUrl = ref<string | null>(null);
+const danfeError = ref<string | null>(null);
+const danfeRetryable = ref(false);
+const danfePending = ref<FiscalDocumentRow | null>(null);
+
+function onOpenDetail(row: FiscalDocumentRow): void {
+    selected.value = row;
+    detailOpen.value = true;
+}
+
+async function onDownloadXml(row: FiscalDocumentRow): Promise<void> {
+    if (!row.has_xml) {
+        return;
+    }
+
+    try {
+        const response = await fetch(download.url({ document: row.id }), {
+            headers: { Accept: 'application/json' },
+        });
+
+        if (!response.ok) {
+            throw new Error(`download ${response.status}`);
+        }
+
+        const data = (await response.json()) as {
+            download_url?: unknown;
+        };
+
+        if (typeof data.download_url !== 'string' || data.download_url === '') {
+            throw new Error('download sem url');
+        }
+
+        window.location.href = data.download_url;
+    } catch {
+        toast.add({
+            title: 'Não foi possível baixar o XML.',
+            description: 'Tente novamente em instantes.',
+        });
+    }
+}
+
+function onViewDanfe(row: FiscalDocumentRow): void {
+    if (!row.has_danfe) {
+        return;
+    }
+
+    danfePending.value = row;
+    danfeTitle.value = row.family === 'nfse' ? 'DANFSe' : 'DANFE';
+    danfeOpen.value = true;
+    void loadDanfe(row);
+}
+
+async function loadDanfe(row: FiscalDocumentRow): Promise<void> {
+    danfePdfUrl.value = null;
+    danfeDownloadUrl.value = null;
+    danfeError.value = null;
+    danfeRetryable.value = false;
+
+    try {
+        const pdfResponse = await fetch(danfe.url({ document: row.id }), {
+            headers: { Accept: 'application/json' },
+        });
+
+        // Gone artifact is final: no retry, honest message.
+        if (pdfResponse.status === 404) {
+            danfeError.value =
+                'O documento auxiliar não está mais disponível para este documento.';
+            return;
+        }
+
+        if (!pdfResponse.ok) {
+            throw new Error(`danfe ${pdfResponse.status}`);
+        }
+
+        const pdfData = (await pdfResponse.json()) as {
+            pdf_url?: unknown;
+        };
+
+        if (typeof pdfData.pdf_url !== 'string' || pdfData.pdf_url === '') {
+            throw new Error('danfe sem url');
+        }
+
+        danfePdfUrl.value = pdfData.pdf_url;
+
+        if (row.has_xml) {
+            try {
+                const xmlResponse = await fetch(
+                    download.url({ document: row.id }),
+                    { headers: { Accept: 'application/json' } },
+                );
+
+                if (xmlResponse.ok) {
+                    const xmlData = (await xmlResponse.json()) as {
+                        download_url?: unknown;
+                    };
+
+                    if (typeof xmlData.download_url === 'string') {
+                        danfeDownloadUrl.value = xmlData.download_url;
+                    }
+                }
+            } catch {
+                // XML button simply stays disabled; the preview is unaffected.
+            }
+        }
+    } catch {
+        danfeError.value =
+            'Não foi possível carregar a pré-visualização. Verifique a conexão.';
+        danfeRetryable.value = true;
+    }
+}
+
+function onRetryDanfe(): void {
+    if (danfePending.value) {
+        void loadDanfe(danfePending.value);
+    }
+}
+
+function onDanfeDownload(): void {
+    if (danfeDownloadUrl.value) {
+        window.location.href = danfeDownloadUrl.value;
+    }
+}
 </script>
 
 <template>
@@ -125,6 +261,25 @@ function goToPage(nextPage: number): void {
                 :sort="filters.sort"
                 :dir="filters.dir"
                 @sort="onSort"
+                @open-detail="onOpenDetail"
+                @download-xml="onDownloadXml"
+                @view-danfe="onViewDanfe"
+            />
+
+            <DetailSlideover
+                v-model:open="detailOpen"
+                :document="selected"
+            />
+
+            <DanfeModal
+                v-model:open="danfeOpen"
+                :title="danfeTitle"
+                :pdf-url="danfePdfUrl"
+                :download-url="danfeDownloadUrl"
+                :error="danfeError"
+                :retryable="danfeRetryable"
+                @retry="onRetryDanfe"
+                @download="onDanfeDownload"
             />
 
             <div

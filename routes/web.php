@@ -7,6 +7,7 @@ use App\Http\Controllers\CertificateController;
 use App\Http\Controllers\ClientController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\DocumentDashboardController;
+use App\Http\Controllers\FiscalDownloadController;
 use App\Http\Controllers\InvitationController;
 use App\Http\Controllers\OnboardingController;
 use App\Http\Controllers\PlanController;
@@ -47,11 +48,20 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::get('documents/all', [DocumentDashboardController::class, 'all'])->name('documents.all');
     Route::get('documents/clients', [DocumentDashboardController::class, 'clients'])->name('documents.clients');
 
+    Route::get('fiscal/documents/{document}/download', [FiscalDownloadController::class, 'show'])->name('fiscal.download');
+    Route::get('fiscal/documents/{document}/danfe', [FiscalDownloadController::class, 'pdf'])->name('fiscal.danfe');
+
     Route::post('clients/bulk-destroy', [ClientController::class, 'bulkDestroy'])->name('clients.bulk-destroy');
     Route::post('clients/{client}/certificate', [CertificateController::class, 'store'])->name('certificates.store');
     Route::put('clients/{client}/portal-password', [CertificateController::class, 'updatePortalPassword'])->name('certificates.portal-password');
     Route::delete('clients/{client}/certificate', [CertificateController::class, 'destroy'])->name('certificates.destroy');
     Route::resource('clients', ClientController::class);
 });
+
+// Signed file streams carry no session auth by design: the short-lived
+// signature is the credential. Paths expose ids only, never storage
+// references, CNPJ or access keys.
+Route::get('fiscal/files/{document}/xml', [FiscalDownloadController::class, 'streamXml'])->name('fiscal.download.file')->middleware('signed');
+Route::get('fiscal/files/{document}/pdf', [FiscalDownloadController::class, 'streamPdf'])->name('fiscal.danfe.file')->middleware('signed');
 
 require __DIR__.'/settings.php';
