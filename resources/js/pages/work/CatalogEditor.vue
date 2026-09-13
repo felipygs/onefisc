@@ -352,6 +352,70 @@ function removeTask(index: number): void {
     draftTasks.value = draftTasks.value.filter((_, i) => i !== index);
 }
 
+// ---- Re-sync dos ids do checklist após a perna 1 ----------------------------
+//
+// Tarefas novas têm `id: null` no rascunho. Se a perna 1 persistir mas a
+// perna 2 falhar, uma retentativa reenviaria os mesmos `id: null` — e o
+// `syncDefinitions` do 2.1 apagaria as linhas recém-criadas para recriá-las
+// com outros ids. Qualquer tarefa já materializada contra os ids antigos
+// perderia o vínculo e a rematerialização duplicaria tarefas. Por isso,
+// após a perna 1, os ids são relidos do servidor ANTES da perna 2: a partir
+// daí a retentativa carrega ids reais e o update vira idempotente. Se a
+// releitura falhar, a retentativa é bloqueada (`needsRefresh`) até um reload
+// completo trazer props frescas.
+
+const needsRefresh = ref(false);
+
+function rebaseTaskIds(): void {
+    const fresh = [...props.process.definitions].sort(
+        (a, b) => a.position - b.position,
+    );
+
+    const diverged =
+        fresh.length !== draftTasks.value.length ||
+        fresh.some((definition) => definition.id === null);
+
+    if (diverged) {
+        throw new Error(
+            'O checklist salvo divergiu do rascunho. Recarregue a página antes de tentar de novo.',
+        );
+    }
+
+    draftTasks.value = fresh.map((definition, index) => ({
+        key: `id-${definition.id}`,
+        id: definition.id,
+        title: draftTasks.value[index]?.title ?? definition.title,
+    }));
+}
+
+function resyncDefinitionIds(): Promise<void> {
+    return new Promise((resolve, reject) => {
+        router.reload({
+            only: ['process'],
+            onSuccess: () => {
+                try {
+                    rebaseTaskIds();
+                    resolve();
+                } catch (error) {
+                    reject(error);
+                }
+            },
+            onError: () =>
+                reject(
+                    new Error(
+                        'O checklist foi salvo, mas não foi possível confirmar os itens. Recarregue a página antes de tentar de novo.',
+                    ),
+                ),
+            onNetworkError: () =>
+                reject(
+                    new Error(
+                        'O checklist pode ter sido salvo, mas a confirmação falhou (rede). Recarregue a página antes de tentar de novo.',
+                    ),
+                ),
+        });
+    });
+}
+
 // ---- Aplicar associação (2.1 update + 2.2 endpoint, um fluxo) -----------------
 
 const applying = ref(false);
@@ -404,13 +468,16 @@ async function putJson(
 }
 
 async function applyAssociation(): Promise<void> {
-    if (applying.value) {
+    if (applying.value || needsRefresh.value) {
         return;
     }
 
     applying.value = true;
     applyError.value = null;
     applyResult.value = null;
+
+    let rulesPersisted = false;
+    let idsResynced = false;
 
     try {
         const recurrence = recurrencePayload();
@@ -440,21 +507,38 @@ async function applyAssociation(): Promise<void> {
             definitions: draftTasks.value.map((task, index) => {
                 const kept = task.id !== null ? byId[task.id] : undefined;
 
+                // Tarefas novas vão só com título+posição: nulos explícitos
+                // violariam defaults NOT NULL do banco (`priority`,
+                // `requires_document`) — os defaults assumem. Nas mantidas,
+                // os valores lidos do servidor circulam intactos.
                 return {
-                    ...(task.id !== null ? { id: task.id } : {}),
+                    ...(task.id !== null
+                        ? {
+                              id: task.id,
+                              description: kept?.description ?? null,
+                              due_day: kept?.due_day ?? null,
+                              competence_offset:
+                                  kept?.competence_offset ?? null,
+                              priority: kept?.priority ?? null,
+                              default_assigned_user_id:
+                                  kept?.default_assigned_user_id ?? null,
+                              department_id: kept?.department_id ?? null,
+                              requires_document:
+                                  kept?.requires_document ?? false,
+                          }
+                        : {}),
                     title: task.title,
                     position: index,
-                    description: kept?.description ?? null,
-                    due_day: kept?.due_day ?? null,
-                    competence_offset: kept?.competence_offset ?? null,
-                    priority: kept?.priority ?? null,
-                    default_assigned_user_id:
-                        kept?.default_assigned_user_id ?? null,
-                    department_id: kept?.department_id ?? null,
-                    requires_document: kept?.requires_document ?? false,
                 };
             }),
         });
+
+        // Perna 1b: as regras acabaram de persistir, então os ids das
+        // tarefas novas já existem no servidor — relê antes da perna 2 para
+        // que uma retentativa carregue ids reais (ver comentário acima).
+        rulesPersisted = true;
+        await resyncDefinitionIds();
+        idsResynced = true;
 
         // Segunda perna: o conjunto efetivo (lido do preview) através do 2.2.
         // Segue redirects (GET segue como GET): sem sessão cai no HTML do
@@ -482,6 +566,15 @@ async function applyAssociation(): Promise<void> {
 
         router.reload();
     } catch (error) {
+        // Retentativa insegura só quando a perna 1 persistiu mas os ids não
+        // foram confirmados: o rascunho ainda tem `id: null` e reenviá-lo
+        // recriaria linhas. Trava até um reload completo. Nos demais casos
+        // (perna 1 falhou = nada criado; re-sync ok = ids reais) a
+        // retentativa é idempotente e segue liberada.
+        if (rulesPersisted && !idsResynced) {
+            needsRefresh.value = true;
+        }
+
         applyError.value =
             error instanceof Error
                 ? error.message
@@ -1027,11 +1120,20 @@ async function applyAssociation(): Promise<void> {
                     <UButton
                         size="lg"
                         :loading="applying"
+                        :disabled="needsRefresh"
                         data-test="work-editor-apply"
                         @click="applyAssociation"
                     >
                         Aplicar associação
                     </UButton>
+                    <p
+                        v-if="needsRefresh"
+                        class="text-warning text-sm font-medium"
+                        data-test="work-editor-refresh-needed"
+                    >
+                        O checklist foi salvo, mas a confirmação falhou.
+                        Recarregue a página antes de aplicar de novo.
+                    </p>
                     <p
                         v-if="applyResult !== null"
                         class="text-success text-sm font-medium"

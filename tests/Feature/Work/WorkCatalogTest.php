@@ -258,3 +258,43 @@ it('searches the catalog by process title', function () {
             ->has('processes', 1)
             ->where('processes.0.title', 'Fechamento mensal Alfa'));
 });
+
+it('saves editor new-task payloads with server defaults intact', function () {
+    // Locks the contract the editor relies on: brand-new checklist items are
+    // sent as bare {title, position} (no id, no null optionals), so NOT NULL
+    // column defaults (`priority`, `requires_document`) apply instead of a
+    // constraint violation. A retry then carries the created ids.
+    [$account, $admin] = catalogAccountUser('admin');
+    $this->actingAs($admin);
+
+    $process = catalogProcessWithDefinitions($account);
+    $kept = $process->definitions()->orderBy('position')->get();
+
+    $this->put(route('work.processes.update', $process), [
+        'definitions' => [
+            ['id' => $kept[0]->id, 'title' => $kept[0]->title, 'position' => 0],
+            ['id' => $kept[1]->id, 'title' => $kept[1]->title, 'position' => 1],
+            ['title' => 'Etapa três', 'position' => 2],
+        ],
+    ])->assertRedirect(route('work.processes.index'));
+
+    $titles = $process->definitions()->orderBy('position')->pluck('title')->all();
+    $new = $process->definitions()->where('title', 'Etapa três')->firstOrFail();
+
+    expect($titles)->toBe(['Etapa um', 'Etapa dois', 'Etapa três'])
+        ->and($new->priority)->toBe('medium')
+        ->and($new->requires_document)->toBeFalse();
+
+    // Retry with the now-known ids updates in place: no churn, no duplicates.
+    $this->put(route('work.processes.update', $process), [
+        'definitions' => [
+            ['id' => $kept[0]->id, 'title' => $kept[0]->title, 'position' => 0],
+            ['id' => $kept[1]->id, 'title' => $kept[1]->title, 'position' => 1],
+            ['id' => $new->id, 'title' => 'Etapa três', 'position' => 2],
+        ],
+    ])->assertRedirect(route('work.processes.index'));
+
+    expect($process->definitions()->count())->toBe(3)
+        ->and($process->definitions()->orderBy('position')->pluck('id')->all())
+        ->toBe([$kept[0]->id, $kept[1]->id, $new->id]);
+});
