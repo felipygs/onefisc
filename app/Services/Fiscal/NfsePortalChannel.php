@@ -162,7 +162,7 @@ final class NfsePortalChannel implements DistributionChannel
                 }
             }
 
-            $url = $this->nextPage($response->body());
+            $url = $this->nextPage($response->body(), $url);
         }
 
         return $keys;
@@ -173,8 +173,9 @@ final class NfsePortalChannel implements DistributionChannel
         $response = $this->send(fn () => Http::timeout($this->timeout())
             ->get($this->url('/EmissorNacional/Notas/Download/NFSe/'.$key)), 'portal_transport_failed');
 
-        // Any anti-bot wall on the download aborts the whole run as terminal
-        // portal_captcha: v1 has no solver and retries blindly never unlock it.
+        // A download that is not XML (a bare 403 rate-limit/session blip
+        // included) is a transport failure: `unknown` with a normal retry.
+        // Only a positive captcha marker (checked above) is terminal.
         $this->assertNoCaptcha($response, 'download');
 
         if ($response->status() === 403 || ! $this->looksLikeNfseXml($response->body())) {
@@ -208,6 +209,13 @@ final class NfsePortalChannel implements DistributionChannel
 
     private function assertNoCaptcha(Response $response, string $phase): void
     {
+        // Terminal `limited` requires a positive captcha/anti-bot marker. A
+        // bare non-200 (403 rate-limit/session blip included) is a transport
+        // failure instead: `unknown` with a normal retry, never a terminal
+        // state needing manual clearing. (The legacy client maps bare
+        // download-403 to its captcha flow only because it owns a solver +
+        // session jar that can confirm and unlock it; v1 has neither, so a
+        // bare 403 here proves nothing and must stay fail-safe.)
         $body = strtolower($response->body());
 
         foreach (self::CAPTCHA_MARKERS as $marker) {
@@ -217,13 +225,6 @@ final class NfsePortalChannel implements DistributionChannel
                     'phase' => $phase,
                 ]);
             }
-        }
-
-        if ($response->status() === 403 && $phase === 'download') {
-            throw NfseCoverageException::limited('portal_captcha', [
-                'channel' => 'portal',
-                'phase' => $phase,
-            ]);
         }
     }
 
@@ -252,7 +253,7 @@ final class NfsePortalChannel implements DistributionChannel
         return $keys;
     }
 
-    private function nextPage(string $html): ?string
+    private function nextPage(string $html, string $currentUrl): ?string
     {
         if (preg_match('#<a[^>]+rel="next"[^>]+href="([^"]+)"#i', $html, $matches) !== 1) {
             return null;
@@ -268,7 +269,21 @@ final class NfsePortalChannel implements DistributionChannel
             return str_starts_with($href, rtrim($this->baseUrl, '/')) ? $href : null;
         }
 
-        return $this->url($href);
+        if (str_starts_with($href, '/')) {
+            return $this->url($href);
+        }
+
+        // Relative reference: resolve against the CURRENT listing URL, never
+        // the site root (a bare `?pg=2` must keep the listing path).
+        $path = substr($currentUrl, 0, strcspn($currentUrl, '?#'));
+
+        if (str_starts_with($href, '?') || str_starts_with($href, '#')) {
+            return $path.$href;
+        }
+
+        $slash = strrpos($path, '/');
+
+        return ($slash === false ? $path.'/' : substr($path, 0, $slash + 1)).$href;
     }
 
     /**

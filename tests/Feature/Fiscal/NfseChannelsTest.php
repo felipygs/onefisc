@@ -445,6 +445,80 @@ it('maps a portal captcha challenge to terminal portal_captcha coverage', functi
     }
 });
 
+it('maps a bare portal download 403 without captcha marker to a transport error', function () {
+    $chave = nfseKey('44');
+
+    Http::fake([
+        'https://portal.test/EmissorNacional/Login' => Http::response('<html>Painel Notas/Emitidas</html>', 200),
+        'https://portal.test/EmissorNacional/Notas/Emitidas*' => Http::response(
+            '<a href="/EmissorNacional/Notas/Download/NFSe/'.$chave.'">xml</a>', 200,
+        ),
+        'https://portal.test/EmissorNacional/Notas/Recebidas*' => Http::response('<html></html>', 200),
+        // Rate-limit/session blip: 403 with a plain body, no anti-bot marker.
+        'https://portal.test/EmissorNacional/Notas/Download/NFSe/*' => Http::response('forbidden', 403),
+    ]);
+
+    try {
+        (new NfsePortalChannel('https://portal.test', '12345678000195', 'portal-secret-6'))->fetchSince('');
+        $this->fail('Expected an NfseTransportException.');
+    } catch (NfseTransportException $e) {
+        expect($e->reason)->toBe('portal_unavailable');
+    }
+});
+
+it('follows portal pagination on relative hrefs uniting keys within the page cap', function () {
+    $signed = '<NFSe><Signature/></NFSe>';
+
+    Http::fake(function ($request) use ($signed) {
+        $url = $request->url();
+
+        if (str_contains($url, '/EmissorNacional/Login')) {
+            return Http::response('<html>Painel Notas/Emitidas</html>', 200);
+        }
+
+        if (str_contains($url, '/Notas/Recebidas')) {
+            return Http::response('<html></html>', 200);
+        }
+
+        if (str_contains($url, '/Notas/Emitidas')) {
+            // Pages 1..6 keep offering a bare `?pg=N` next link; the channel
+            // must resolve it against the listing path and stop at 5 pages.
+            $page = 1;
+
+            if (preg_match('/[?&]pg=(\d+)/', $url, $m) === 1) {
+                $page = (int) $m[1];
+            }
+
+            $key = nfseKey('6'.$page);
+            $next = $page < 6 ? '<a rel="next" href="?pg='.($page + 1).'">proxima</a>' : '';
+
+            return Http::response(
+                '<a href="/EmissorNacional/Notas/Download/NFSe/'.$key.'">xml</a>'.$next, 200,
+            );
+        }
+
+        if (str_contains($url, '/Download/NFSe/')) {
+            return Http::response($signed, 200, ['Content-Type' => 'application/xml']);
+        }
+
+        return Http::response('missing', 404);
+    });
+
+    $batch = (new NfsePortalChannel('https://portal.test', '12345678000195', 'portal-secret-7'))->fetchSince('');
+
+    $keys = array_column($batch->items, 'key');
+
+    // Union of pages 1..5 (page 6 never fetched: page cap, not notes cap).
+    expect($batch->items)->toHaveCount(5)
+        ->and($keys)->toContain(nfseKey('61'), nfseKey('65'))
+        ->and($keys)->not->toContain(nfseKey('66'));
+
+    $requested = Http::recorded()->map(fn ($pair) => $pair[0]->url())->all();
+
+    expect($requested)->toContain('https://portal.test/EmissorNacional/Notas/Emitidas?pg=2')
+        ->and(array_filter($requested, fn ($u) => str_contains($u, 'pg=6')))->toBe([]);
+});
+
 it('resolves the nfse family through the production channel factory', function () {
     config(['fiscal.adn.producao.base_url' => 'https://adn.test']);
     $client = nfseClientWithCredential('portal-secret-5');
