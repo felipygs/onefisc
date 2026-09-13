@@ -4,6 +4,7 @@ import { computed } from 'vue';
 import { dashboard } from '@/routes';
 import { index as auditIndex } from '@/routes/audit';
 import { index as clientsIndex } from '@/routes/clients';
+import { index as documentsIndex } from '@/routes/documents';
 import { edit as editProfile } from '@/routes/profile';
 
 const open = defineModel<boolean>('open', { default: false });
@@ -53,6 +54,12 @@ const groups = computed(() => [
                           label: 'Clients',
                           icon: 'i-lucide-users',
                           onSelect: () => go(clientsIndex.url()),
+                      },
+                      {
+                          id: 'go-documents',
+                          label: 'Documentos',
+                          icon: 'i-lucide-file-text',
+                          onSelect: () => go(documentsIndex.url()),
                       },
                   ]
                 : []),

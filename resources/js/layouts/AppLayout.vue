@@ -12,6 +12,7 @@ import { setupDashboardShortcuts } from '@/composables/useDashboard';
 import { dashboard } from '@/routes';
 import { edit as editAppearance } from '@/routes/appearance';
 import { index as clientsIndex } from '@/routes/clients';
+import { index as documentsIndex } from '@/routes/documents';
 import { index as membersIndex } from '@/routes/members';
 import { edit as editNotifications } from '@/routes/notifications';
 import { edit as editProfile } from '@/routes/profile';
@@ -50,6 +51,14 @@ const links = computed<NavigationMenuItem[][]>(() => [
                       label: 'Clients',
                       icon: 'i-lucide-users',
                       to: clientsIndex.url(),
+                      onSelect: () => {
+                          open.value = false;
+                      },
+                  },
+                  {
+                      label: 'Documentos',
+                      icon: 'i-lucide-file-text',
+                      to: documentsIndex.url(),
                       onSelect: () => {
                           open.value = false;
                       },
