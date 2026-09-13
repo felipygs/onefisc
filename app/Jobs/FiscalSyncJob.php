@@ -3,6 +3,7 @@
 namespace App\Jobs;
 
 use App\Models\FiscalSyncSubscription;
+use App\Services\Fiscal\FiscalSyncRunner;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
 use Illuminate\Support\Facades\Log;
@@ -19,11 +20,11 @@ class FiscalSyncJob implements ShouldQueue
     }
 
     /**
-     * Safe skeleton: revalidates the subscription and returns.
+     * Runs one incremental sync cycle through FiscalSyncRunner.
      *
-     * The real SEFAZ sync + run recording land in tasks 3.2-3.4. This must
-     * never let an exception bubble out and poison the queue: failures
-     * become visible state (audited), never silent exceptions.
+     * Run recording lands in task 3.4. This must never let an exception
+     * bubble out and poison the queue: failures become visible state
+     * (audited), never silent exceptions.
      */
     public function handle(): void
     {
@@ -35,7 +36,9 @@ class FiscalSyncJob implements ShouldQueue
                 return;
             }
 
-            // Tasks 3.2-3.4 fill in the actual SEFAZ sync + cursor advance here.
+            // Task 3.2: incremental channel sync (cursor advance + SEFAZ pause).
+            // Persistence and ciencia land in tasks 3.3/4.1.
+            app(FiscalSyncRunner::class)->run($subscription);
         } catch (Throwable $e) {
             Log::warning('Fiscal sync run failed without visible state yet.', [
                 'subscription_id' => $this->subscriptionId,
