@@ -177,14 +177,17 @@ final class FiscalSyncRunner
 
     /**
      * Map the precise runner status onto the five audited cycle results:
-     * ok (synced/empty), blocked (paused/limited), suspended, volume_exhausted
-     * or failed (unknown/failed). The precise status rides along as detail.
+     * ok (synced/empty), blocked (paused/limited/unknown), suspended,
+     * volume_exhausted or failed (caught-exception path only). `unknown` is
+     * ambiguous coverage with normal retry (never terminal: only `limited`
+     * short-circuits), so it reads as blocked — "retry next window" — never
+     * as a failure. The precise status rides along as detail.
      */
     private function cycleResult(SyncResult $result): string
     {
         return match ($result->status) {
             'synced', 'empty' => 'ok',
-            'paused', 'limited' => 'blocked',
+            'paused', 'limited', 'unknown' => 'blocked',
             'suspended' => 'suspended',
             'volume_exhausted' => 'volume_exhausted',
             default => 'failed',

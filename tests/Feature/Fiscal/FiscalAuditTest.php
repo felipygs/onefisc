@@ -10,6 +10,7 @@ use App\Services\Fiscal\ChannelBatch;
 use App\Services\Fiscal\DistributionChannel;
 use App\Services\Fiscal\FiscalChannelFactory;
 use App\Services\Fiscal\FiscalSyncRunner;
+use App\Services\Fiscal\NfseTransportException;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Str;
@@ -34,8 +35,14 @@ if (! class_exists('AuditFakeChannel')) {
         /** @var array<int, string> */
         public array $manifestFailures = [];
 
+        public ?Throwable $toThrow = null;
+
         public function fetchSince(string $lastNsu): ChannelBatch
         {
+            if ($this->toThrow !== null) {
+                throw $this->toThrow;
+            }
+
             return array_shift($this->queuedBatches) ?? new ChannelBatch(items: [], lastNsu: $lastNsu);
         }
 
@@ -92,6 +99,28 @@ if (! function_exists('auditRunnerWithChannel')) {
     }
 }
 
+if (! function_exists('auditRunnerWithoutPortal')) {
+    function auditRunnerWithoutPortal(DistributionChannel $channel): FiscalSyncRunner
+    {
+        $factory = new class($channel) extends FiscalChannelFactory
+        {
+            public function __construct(private readonly DistributionChannel $channel) {}
+
+            public function for(FiscalSyncSubscription $subscription): DistributionChannel
+            {
+                return $this->channel;
+            }
+
+            public function portalFor(FiscalSyncSubscription $subscription): DistributionChannel
+            {
+                throw new RuntimeException('Senha do portal ausente para o Client.');
+            }
+        };
+
+        return new FiscalSyncRunner($factory);
+    }
+}
+
 if (! function_exists('auditKey')) {
     function auditKey(string $digit): string
     {
@@ -133,11 +162,11 @@ if (! function_exists('auditSyncClient')) {
 }
 
 if (! function_exists('auditSyncSubscription')) {
-    function auditSyncSubscription(Client $client): FiscalSyncSubscription
+    function auditSyncSubscription(Client $client, string $family = 'nfe'): FiscalSyncSubscription
     {
         return FiscalSyncSubscription::factory()->create([
             'client_id' => $client->id,
-            'family' => 'nfe',
+            'family' => $family,
             'environment' => 'production',
             'next_run_at' => now()->subMinutes(5),
             'blocked_until' => null,
@@ -306,6 +335,42 @@ it('audits a failed cycle with a short motive and leaks neither the exception no
         ->and($audit->metadata['client_id'] ?? null)->toBe($client->id)
         ->and($audit->metadata['result'] ?? null)->toBe('failed')
         ->and((string) json_encode($audit->metadata))->not->toContain($marker);
+});
+
+// ---------------------------------------------------------------------------
+// 2c. Ambiguous NFS-e coverage (`unknown`, normal retry) audits as `blocked`
+//     — never as `failed` — with retry semantics intact (no terminal
+//     short-circuit: only `limited` evidence stops reconsulting).
+// ---------------------------------------------------------------------------
+
+it('audits unknown coverage as blocked while the next cycle retries normally', function () {
+    $client = auditSyncClient();
+    $subscription = auditSyncSubscription($client, 'nfse');
+
+    $fake = new AuditFakeChannel;
+    $fake->toThrow = new NfseTransportException('adn_unavailable');
+
+    $runner = auditRunnerWithoutPortal($fake);
+
+    $first = $runner->run($subscription);
+
+    expect($first->status)->toBe('unknown');
+
+    $audit = AuditLog::where('action', 'fiscal.sync.cycle')->firstOrFail();
+
+    expect($audit->actor_user_id)->toBeNull()
+        ->and($audit->metadata['client_id'] ?? null)->toBe($client->id)
+        ->and($audit->metadata['family'] ?? null)->toBe('nfse')
+        ->and($audit->metadata['result'] ?? null)->toBe('blocked')
+        ->and($audit->metadata['status'] ?? null)->toBe('unknown')
+        ->and($audit->metadata['reason'] ?? null)->toBe('adn_unavailable');
+
+    // Retry semantics intact: unknown is NOT terminal, so the next cycle
+    // reconsults the channel and audits a second cycle row.
+    $second = $runner->run($subscription->fresh());
+
+    expect($second->status)->toBe('unknown')
+        ->and(AuditLog::where('action', 'fiscal.sync.cycle')->count())->toBe(2);
 });
 
 // ---------------------------------------------------------------------------
