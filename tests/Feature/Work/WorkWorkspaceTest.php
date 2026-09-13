@@ -198,7 +198,7 @@ it('404s same-account pairs without an association row', function () {
     $this->getJson(route('work.processes.clients.show', [$process, $client]))->assertNotFound();
 });
 
-it('gates ad-hoc creation to managing roles', function () {
+it('mirrors the store gate for ad-hoc creation', function () {
     [$account, $admin] = workspaceAccountUser('admin');
     $operador = User::factory()->create(['account_id' => $account->id, 'role' => 'operador']);
     $user = User::factory()->create(['account_id' => $account->id, 'role' => 'user']);
@@ -213,11 +213,24 @@ it('gates ad-hoc creation to managing roles', function () {
     $this->getJson(route('work.processes.clients.show', [$process, $client]))
         ->assertOk()->assertJson(['can_create_task' => true]);
 
-    // Assigned collaborators reach the workspace but create ad-hoc through
-    // the managing surface only: the modal input stays hidden for them.
+    // Assigned collaborators see the same affordance the store route
+    // authorizes for them — and the end-to-end create through the pair
+    // succeeds.
     $this->actingAs($user);
     $this->getJson(route('work.processes.clients.show', [$process, $client]))
-        ->assertOk()->assertJson(['can_create_task' => false]);
+        ->assertOk()->assertJson(['can_create_task' => true]);
+
+    $this->post(route('work.tasks.store'), [
+        'work_process_id' => $process->id,
+        'client_id' => $client->id,
+        'title' => 'Etapa do colaborador',
+    ])->assertRedirect();
+
+    expect(WorkTask::where('account_id', $account->id)
+        ->where('work_process_id', $process->id)
+        ->where('client_id', $client->id)
+        ->where('title', 'Etapa do colaborador')
+        ->exists())->toBeTrue();
 });
 
 it('reports documents unavailable without fiscal presence', function () {

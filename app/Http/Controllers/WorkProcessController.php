@@ -364,12 +364,13 @@ class WorkProcessController extends Controller
                         'name' => $task->assignee->name,
                     ],
                 ])->all(),
-            // Ad-hoc creation from the modal is a managing affordance (same
-            // roles that manage processes and install marketplace listings):
-            // collaborators reach the workspace read-only. Direct POSTs to
-            // `work.tasks.store` keep their own assignment-aware gate.
+            // Ad-hoc creation mirrors the `work.tasks.store` gate exactly
+            // (StoreWorkTaskRequest): managers everywhere, collaborators
+            // under clients assigned to them. The same
+            // `WorkTaskPolicy::isClientAssignee` predicate enforces both, so
+            // the modal never hides an authorized affordance.
             'can_create_task' => $user instanceof User
-                && in_array($user->role, WorkTaskPolicy::MANAGING_ROLES, true),
+                && (new WorkTaskPolicy)->isClientAssignee($user, (int) $clientModel->id),
             'documents_available' => $this->documentsAvailable((int) $clientModel->id),
         ]);
     }
