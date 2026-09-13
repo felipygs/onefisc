@@ -97,7 +97,9 @@ const showFamilies = computed(() => activeTab.value !== 'operacao');
 const showChart = computed(
     () => activeTab.value === 'visao' || activeTab.value === 'operacao',
 );
-const showAttention = computed(() => activeTab.value === 'operacao');
+const showAttention = computed(
+    () => activeTab.value === 'visao' || activeTab.value === 'operacao',
+);
 
 function reloadPeriod(next: string): void {
     reloading.value = true;

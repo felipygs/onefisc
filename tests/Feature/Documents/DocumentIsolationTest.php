@@ -4,7 +4,10 @@ use App\Models\Account;
 use App\Models\Client;
 use App\Models\ClientCredential;
 use App\Models\FiscalDocument;
+use App\Models\FiscalSyncCursor;
+use App\Models\FiscalSyncSubscription;
 use App\Models\User;
+use Illuminate\Support\Collection;
 
 use function Pest\Laravel\actingAs;
 use function Pest\Laravel\get;
@@ -53,7 +56,20 @@ it('isolates the documents portfolio so account A never sees account B documents
 
     get(route('documents.clients'))->assertOk()->assertInertia(fn ($page) => $page
         ->component('documents/Clients')
-        ->where('attention.0.client_id', $clientA->id));
+        ->where('attention', function (mixed $attention) use ($clientA, $clientB) {
+            // Every row must belong to A; a B leak anywhere in the list fails.
+            $rows = $attention instanceof Collection ? $attention->all() : $attention;
+
+            expect($rows)->not->toBeEmpty();
+
+            foreach ($rows as $row) {
+                expect($row['client_id'])->toBe($clientA->id);
+            }
+
+            expect(array_column($rows, 'client_id'))->not->toContain($clientB->id);
+
+            return true;
+        }));
 });
 
 it('denies the user role with 403 on all three documents routes', function () {
@@ -64,4 +80,81 @@ it('denies the user role with 403 on all three documents routes', function () {
     get(route('documents.index'))->assertForbidden();
     get(route('documents.all'))->assertForbidden();
     get(route('documents.clients'))->assertForbidden();
+});
+
+it('applies the period window consistently across cards, chart, families and recent', function () {
+    [$account, $admin] = documentsAccountUser('admin');
+    $client = Client::factory()->create(['account_id' => $account->id]);
+
+    FiscalDocument::factory()->count(2)->create([
+        'client_id' => $client->id,
+        'family' => 'nfe',
+        'emission_at' => now(),
+    ]);
+    // Undated and out-of-window documents stay out of every period aggregate.
+    FiscalDocument::factory()->create(['client_id' => $client->id, 'family' => 'nfe', 'emission_at' => null]);
+    FiscalDocument::factory()->create(['client_id' => $client->id, 'family' => 'cte', 'emission_at' => now()->subDays(60)]);
+
+    actingAs($admin);
+
+    get(route('documents.index', ['period' => '30d']))->assertOk()->assertInertia(fn ($page) => $page
+        ->component('documents/Index')
+        ->where('overview.totals.documents', 2)
+        ->where('overview.families.0.count', 2)
+        ->where('overview.families.1.count', 0)
+        ->where('chart', function (mixed $chart) {
+            // Chart total matches the cards total: same window everywhere.
+            $points = $chart instanceof Collection ? $chart->all() : $chart;
+
+            expect(array_sum(array_column($points, 'amount')))->toBe(2);
+
+            return true;
+        })
+        ->where('overview.recent', fn (mixed $recent) => count($recent) === 2));
+});
+
+it('flags a subscribed channel without a cursor as stalled sync attention', function () {
+    [$account, $admin] = documentsAccountUser('admin');
+    $client = Client::factory()->create(['account_id' => $account->id]);
+    FiscalSyncSubscription::factory()->create([
+        'client_id' => $client->id,
+        'family' => 'nfe',
+        'blocked_until' => null,
+    ]);
+    // No cursor for the subscribed family: the channel never synced.
+
+    actingAs($admin);
+
+    get(route('documents.clients'))->assertOk()->assertInertia(fn ($page) => $page
+        ->component('documents/Clients')
+        ->where('attention', function (mixed $attention) use ($client) {
+            $rows = $attention instanceof Collection ? $attention->all() : $attention;
+
+            foreach ($rows as $row) {
+                if ($row['client_id'] === $client->id && $row['reason'] === 'sync_failed') {
+                    return true;
+                }
+            }
+
+            return false;
+        }));
+});
+
+it('reports no attention for a healthy client with cursor, certificate and xml', function () {
+    [$account, $admin] = documentsAccountUser('admin');
+    $client = Client::factory()->create(['account_id' => $account->id]);
+    ClientCredential::factory()->create([
+        'client_id' => $client->id,
+        'pfx_data' => 'healthy-pfx',
+        'expires_at' => now()->addYear(),
+    ]);
+    FiscalSyncSubscription::factory()->create(['client_id' => $client->id, 'family' => 'nfe', 'blocked_until' => null]);
+    FiscalSyncCursor::factory()->create(['client_id' => $client->id, 'family' => 'nfe']);
+    FiscalDocument::factory()->create(['client_id' => $client->id, 'has_xml' => true]);
+
+    actingAs($admin);
+
+    get(route('documents.clients'))->assertOk()->assertInertia(fn ($page) => $page
+        ->component('documents/Clients')
+        ->where('attention', []));
 });

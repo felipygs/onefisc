@@ -102,9 +102,9 @@ class DocumentDashboardController extends Controller
      */
     protected function overview(Account $account, CarbonImmutable $cutoff): array
     {
-        $windowed = fn ($query) => $query->where(fn ($inner) => $inner
-            ->where('emission_at', '>=', $cutoff->startOfDay())
-            ->orWhereNull('emission_at'));
+        // Period means emission_at >= cutoff everywhere (cards, chart,
+        // families, recent). Undated and out-of-window documents stay out.
+        $windowed = fn ($query) => $query->where('emission_at', '>=', $cutoff->startOfDay());
 
         $families = [];
         foreach (['nfe', 'cte', 'nfse'] as $family) {
@@ -223,7 +223,7 @@ class DocumentDashboardController extends Controller
         foreach ($clients as $client) {
             $reasons = [];
 
-            if ($this->isSyncBlocked($client)) {
+            if ($this->isSyncBlocked($client) || $this->isSyncStalled($client)) {
                 $reasons[] = 'sync_failed';
             }
 
@@ -260,6 +260,27 @@ class DocumentDashboardController extends Controller
     {
         foreach ($client->syncSubscriptions as $subscription) {
             if ($subscription->blocked_until !== null && $subscription->blocked_until->isFuture()) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * A subscribed family without a cursor never synced on that channel,
+     * so the wallet flags it as stalled sync attention.
+     */
+    protected function isSyncStalled(Client $client): bool
+    {
+        if ($client->syncSubscriptions->isEmpty()) {
+            return false;
+        }
+
+        $cursorFamilies = $client->syncCursors->pluck('family')->unique()->all();
+
+        foreach ($client->syncSubscriptions as $subscription) {
+            if (! in_array($subscription->family, $cursorFamilies, true)) {
                 return true;
             }
         }
