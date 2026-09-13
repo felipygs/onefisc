@@ -11,6 +11,7 @@ use App\Http\Controllers\FiscalDownloadController;
 use App\Http\Controllers\InvitationController;
 use App\Http\Controllers\OnboardingController;
 use App\Http\Controllers\PlanController;
+use App\Http\Controllers\WorkCatalogController;
 use App\Http\Controllers\WorkProcessController;
 use App\Http\Controllers\WorkTaskController;
 use App\Http\Controllers\WorkViewController;
@@ -62,6 +63,10 @@ Route::middleware(['auth', 'verified'])->group(function () {
 
     Route::resource('work/processes', WorkProcessController::class)->names('work.processes');
     Route::put('work/processes/{process}/clients', [WorkProcessController::class, 'updateClients'])->name('work.processes.clients.update');
+    Route::get('work/processes/{process}/association-preview', [WorkProcessController::class, 'associationPreview'])->name('work.processes.association-preview');
+
+    Route::get('work/catalog', [WorkCatalogController::class, 'index'])->name('work.catalog.index');
+    Route::get('work/catalog/{process}', [WorkCatalogController::class, 'show'])->name('work.catalog.show');
 
     Route::resource('work/tasks', WorkTaskController::class)->names('work.tasks');
     Route::patch('work/tasks/{task}/move', [WorkTaskController::class, 'move'])->name('work.tasks.move');

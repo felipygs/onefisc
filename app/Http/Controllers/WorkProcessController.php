@@ -13,9 +13,12 @@ use App\Models\WorkProcessTaskDefinition;
 use App\Models\WorkTask;
 use App\Policies\WorkProcessPolicy;
 use App\Support\CurrentAccount;
+use App\Support\WorkAssociation;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Collection;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 use Inertia\Inertia;
@@ -31,9 +34,20 @@ class WorkProcessController extends Controller
 
         $processes = $this->scopedQuery()
             ->with(['definitions' => fn ($query) => $query->orderBy('position')])
+            // Catalog (4.1) reads per-process association counts + ids from
+            // this payload: both ride the same listing query (count subselect
+            // + one eager load), never one query per row.
+            ->withCount('processClients as clients_count')
+            ->with('processClients:work_process_id,client_id')
             ->orderBy('title')
             ->paginate(15)
             ->withQueryString();
+
+        foreach ($processes as $process) {
+            $process->setAttribute('client_ids', $process->processClients
+                ->pluck('client_id')->map(fn ($id) => (int) $id)->sort()->values()->all());
+            $process->makeHidden('processClients');
+        }
 
         return Inertia::render('Work/Processes/Index', [
             'processes' => $processes,
@@ -195,6 +209,88 @@ class WorkProcessController extends Controller
     }
 
     /**
+     * Dry-run of the 2.2 formula for the catalog editor: the computed
+     * effective set split by source, WITHOUT writing. Read-only for
+     * `admin`/`operador` (same `update` gate as the apply path); `user`
+     * gets 403, foreign ids 404 through the scoped lookup.
+     *
+     * Optional query overrides (`regimes`, `tag_ids`, `extra_ids`,
+     * `excluded_ids` as comma-joined strings, always sent even when empty)
+     * compute the same formula over the given rules instead of the stored
+     * ones, so the editor previews its draft before applying. Presence
+     * (`exists`, not `has`) distinguishes "empty draft" from "no override".
+     * Overrides never persist.
+     */
+    public function associationPreview(Request $request, int|string $process): JsonResponse
+    {
+        $account = CurrentAccount::resolve();
+        abort_unless($account !== null, 404);
+        $model = $this->findProcess($process, $account->id);
+        Gate::authorize('update', $model);
+
+        $request->validate([
+            'regimes' => ['sometimes', 'nullable', 'string'],
+            'tag_ids' => ['sometimes', 'nullable', 'string'],
+            'extra_ids' => ['sometimes', 'nullable', 'string'],
+            'excluded_ids' => ['sometimes', 'nullable', 'string'],
+        ]);
+
+        $draft = $model;
+
+        $overrides = [];
+
+        if ($request->exists('regimes')) {
+            $overrides['association_regimes'] = self::splitPreviewList($request->query('regimes'));
+        }
+
+        if ($request->exists('tag_ids')) {
+            $overrides['association_tag_ids'] = self::splitPreviewList($request->query('tag_ids'));
+        }
+
+        if ($request->exists('extra_ids')) {
+            $overrides['extra_client_ids'] = self::splitPreviewList($request->query('extra_ids'));
+        }
+
+        if ($request->exists('excluded_ids')) {
+            $overrides['excluded_client_ids'] = self::splitPreviewList($request->query('excluded_ids'));
+        }
+
+        if ($overrides !== []) {
+            $draft = $model->replicate()->forceFill($overrides);
+        }
+
+        $preview = WorkAssociation::preview($draft, $account->id);
+
+        return response()->json([
+            'client_ids' => $preview['client_ids'],
+            'count' => count($preview['client_ids']),
+            'by_source' => [
+                'rule' => $preview['rule'],
+                'extras' => $preview['extras'],
+            ],
+        ]);
+    }
+
+    /**
+     * Split a comma-joined preview override into trimmed non-empty items.
+     * Non-string input (including a missing key) yields an empty list; the
+     * association formula casts numeric lists itself.
+     *
+     * @return list<string>
+     */
+    protected static function splitPreviewList(mixed $value): array
+    {
+        if (! is_string($value) || trim($value) === '') {
+            return [];
+        }
+
+        return array_values(array_filter(
+            array_map('trim', explode(',', $value)),
+            fn (string $item) => $item !== ''
+        ));
+    }
+
+    /**
      * Resolve a process through the account-scoped query. Foreign or malformed
      * ids fail with 404 here, before any policy check can leak a 403.
      */
@@ -261,57 +357,15 @@ class WorkProcessController extends Controller
     }
 
     /**
-     * Effective set from the rules stored on the process: regime-and-tag
-     * matches ∪ extras − excluded, restricted to the process Account. Empty
-     * regimes (or `all`) mean every account Client; an empty tag list means
-     * no tag narrowing. Clients have no status column, so every account
-     * Client is a candidate.
+     * Effective set from the rules stored on the process. The formula lives
+     * in WorkAssociation (shared with the catalog preview); this wrapper
+     * keeps the 2.2 call site untouched.
      *
      * @return list<int>
      */
     protected function effectiveClientIds(WorkProcess $process, int $accountId): array
     {
-        $regimes = array_values(array_filter(
-            (array) ($process->association_regimes ?? []),
-            fn ($regime) => $regime !== '' && $regime !== 'all'
-        ));
-
-        $tagIds = array_values(array_filter(
-            array_map('intval', (array) ($process->association_tag_ids ?? [])),
-            fn (int $tagId) => $tagId > 0
-        ));
-
-        $matched = Client::query()
-            ->where('clients.account_id', $accountId)
-            ->when($regimes !== [], fn ($query) => $query->whereIn('clients.regime', $regimes))
-            ->when($tagIds !== [], function ($query) use ($tagIds): void {
-                $query->whereExists(function ($exists) use ($tagIds): void {
-                    $exists->select(DB::raw('1'))
-                        ->from('client_tag')
-                        ->whereColumn('client_tag.client_id', 'clients.id')
-                        ->whereIn('client_tag.client_tag_id', $tagIds);
-                });
-            })
-            ->pluck('clients.id')->map(fn ($id) => (int) $id)->all();
-
-        $extraIds = array_values(array_filter(
-            array_map('intval', (array) ($process->extra_client_ids ?? [])),
-            fn (int $id) => $id > 0
-        ));
-
-        $extras = $extraIds === []
-            ? []
-            : Client::query()
-                ->where('clients.account_id', $accountId)
-                ->whereIn('clients.id', $extraIds)
-                ->pluck('clients.id')->map(fn ($id) => (int) $id)->all();
-
-        $excluded = array_values(array_filter(
-            array_map('intval', (array) ($process->excluded_client_ids ?? [])),
-            fn (int $id) => $id > 0
-        ));
-
-        return array_values(array_diff(array_unique([...$matched, ...$extras]), $excluded));
+        return WorkAssociation::effectiveClientIds($process, $accountId);
     }
 
     /**

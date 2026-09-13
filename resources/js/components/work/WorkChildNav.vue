@@ -3,6 +3,7 @@ import {
     overview as workOverview,
     processos as workProcessos,
 } from '@/routes/work';
+import { index as catalogIndex } from '@/routes/work/catalog';
 
 withDefaults(
     defineProps<{
@@ -28,6 +29,11 @@ const items = [
         key: 'cliente',
         label: 'Clientes',
         href: workProcessos.url({ view: 'cliente' }),
+    },
+    {
+        key: 'catalogo',
+        label: 'Catálogo',
+        href: catalogIndex.url(),
     },
 ];
 </script>
