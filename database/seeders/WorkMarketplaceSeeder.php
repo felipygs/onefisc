@@ -59,7 +59,7 @@ class WorkMarketplaceSeeder extends Seeder
             ],
         ];
 
-        foreach (array_values($definitions) as $position => $attributes) {
+        foreach ($definitions as $position => $attributes) {
             WorkMarketplaceTaskDefinition::updateOrCreate(
                 ['marketplace_process_id' => $process->id, 'position' => $position],
                 $attributes
