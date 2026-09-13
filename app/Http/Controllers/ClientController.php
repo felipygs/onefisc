@@ -70,10 +70,13 @@ class ClientController extends Controller
             ->when($filters['status'] !== null, fn ($query) => $query->where('status', $filters['status']))
             ->when($filters['origin'] !== null, fn ($query) => $query->where('origin', $filters['origin']))
             ->when($filters['q'] !== '', fn ($query) => $query->where(function ($query) use ($filters) {
-                $like = '%'.$filters['q'].'%';
-                $query->where('key', 'like', $like)
-                    ->orWhere('number', 'like', $like)
-                    ->orWhere('issuer_name', 'like', $like);
+                // Escape LIKE wildcards so %/_ match literally; the explicit
+                // ESCAPE clause keeps it literal on every driver (SQLite has
+                // no default LIKE escape character).
+                $like = '%'.addcslashes($filters['q'], '%_\\').'%';
+                $query->whereRaw('key LIKE ? ESCAPE \'\\\'', [$like])
+                    ->orWhereRaw('number LIKE ? ESCAPE \'\\\'', [$like])
+                    ->orWhereRaw('issuer_name LIKE ? ESCAPE \'\\\'', [$like]);
             }))
             ->orderBy($this->sortColumn($filters['sort']), $filters['dir'])
             ->orderBy('id', $filters['dir'])

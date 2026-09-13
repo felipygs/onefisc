@@ -145,3 +145,26 @@ it('exposes the origin flag on every row', function () {
             return true;
         }));
 });
+
+it('matches literal percent and underscore in q instead of wildcards', function () {
+    [$account, $admin] = filtersAccountUser('admin');
+    $client = Client::factory()->create(['account_id' => $account->id]);
+
+    FiscalDocument::factory()->create(['client_id' => $client->id, 'issuer_name' => '100% legit LTDA']);
+    FiscalDocument::factory()->create(['client_id' => $client->id, 'issuer_name' => '100X legit LTDA']);
+    FiscalDocument::factory()->create(['client_id' => $client->id, 'issuer_name' => '100_legit LTDA']);
+
+    actingAs($admin);
+
+    // A literal % must not act as a wildcard: only the % row matches.
+    get(route('documents.all', ['q' => '100%']))->assertOk()->assertInertia(fn ($page) => $page
+        ->component('documents/All')
+        ->where('documents.total', 1)
+        ->where('documents.data.0.issuer_name', '100% legit LTDA'));
+
+    // A literal _ must not act as a single-char wildcard.
+    get(route('documents.all', ['q' => '100_']))->assertOk()->assertInertia(fn ($page) => $page
+        ->component('documents/All')
+        ->where('documents.total', 1)
+        ->where('documents.data.0.issuer_name', '100_legit LTDA'));
+});

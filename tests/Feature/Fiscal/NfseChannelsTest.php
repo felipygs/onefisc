@@ -543,3 +543,45 @@ it('resolves the nfse family through the production channel factory', function (
     expect($factory->for($subscription))->toBeInstanceOf(NfseAdnChannel::class)
         ->and($factory->portalFor($subscription))->toBeInstanceOf(NfsePortalChannel::class);
 });
+
+it('marks portal-listing rows as key-derived while ADN rows keep the ADN seal', function () {
+    // Portal fallback: rows are discovered by extracting access keys from
+    // the listing HTML (key-addressed, nsu == key), so they are derived
+    // from key material.
+    $portalClient = nfseClientWithCredential('portal-secret-derived');
+    $portalSubscription = nfseSubscriptionFor($portalClient);
+
+    $adn = new NfseRecordingChannel;
+    $adn->toThrow = new NfseTransportException('adn_unavailable');
+
+    $portal = new NfseRecordingChannel;
+    $portal->cannedBatch = new ChannelBatch(
+        items: [['key' => nfseKey('31'), 'nsu' => nfseKey('31')]],
+        lastNsu: nfseKey('31'),
+    );
+
+    (new FiscalSyncRunner(new NfseStubFactory($adn, $portal)))->run($portalSubscription);
+
+    $portalDoc = FiscalDocument::withoutGlobalScopes()->where('client_id', $portalClient->id)->firstOrFail();
+
+    expect($portalDoc->origin)->toBe('portal')
+        ->and($portalDoc->derived_from_key)->toBeTrue();
+
+    // ADN primary: rows arrive in authoritative NSU batches, so they keep
+    // the ADN seal (derived_from_key=false).
+    $adnClient = nfseClientWithCredential();
+    $adnSubscription = nfseSubscriptionFor($adnClient);
+
+    $adnPrimary = new NfseRecordingChannel;
+    $adnPrimary->cannedBatch = new ChannelBatch(
+        items: [['key' => nfseKey('32'), 'nsu' => '000000000000001']],
+        lastNsu: '000000000000001',
+    );
+
+    (new FiscalSyncRunner(new NfseStubFactory($adnPrimary)))->run($adnSubscription);
+
+    $adnDoc = FiscalDocument::withoutGlobalScopes()->where('client_id', $adnClient->id)->firstOrFail();
+
+    expect($adnDoc->origin)->toBe('distribuicao')
+        ->and($adnDoc->derived_from_key)->toBeFalse();
+});

@@ -13,6 +13,15 @@ class FiscalSyncJob implements ShouldQueue
 {
     use Queueable;
 
+    /**
+     * Deploy note: this job dispatches onto the dedicated `fiscal` queue,
+     * which NO default worker listens on. Provision a worker covering it or
+     * sync silently never runs, e.g.:
+     *
+     *   php artisan queue:work --queue=fiscal,default
+     *
+     * (The scheduler only enqueues; it never runs the sync inline.)
+     */
     public function __construct(public int $subscriptionId)
     {
         // Dedicated queue so fiscal sync never starves (or is starved by) other work.

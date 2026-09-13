@@ -87,3 +87,20 @@ it('denies the user role with 403 on the client page', function () {
 
     get(route('clients.show', $client))->assertForbidden();
 });
+
+it('matches literal percent in the client documents search instead of wildcards', function () {
+    [$account, $admin] = syncStateAccountUser('admin');
+    $client = Client::factory()->create(['account_id' => $account->id]);
+
+    FiscalDocument::factory()->create(['client_id' => $client->id, 'issuer_name' => '100% legit LTDA']);
+    FiscalDocument::factory()->create(['client_id' => $client->id, 'issuer_name' => '100X legit LTDA']);
+
+    actingAs($admin);
+
+    get(route('clients.show', ['client' => $client->id, 'q' => '100%']))
+        ->assertOk()
+        ->assertInertia(fn ($page) => $page
+            ->component('clients/Show')
+            ->where('documents.total', 1)
+            ->where('documents.data.0.issuer_name', '100% legit LTDA'));
+});

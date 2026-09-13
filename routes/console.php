@@ -9,4 +9,8 @@ Artisan::command('inspire', function () {
 })->purpose('Display an inspiring quote');
 
 Schedule::command('monitoring:run')->daily();
-Schedule::command('fiscal:sync-dispatch')->everyMinute();
+// Runs every minute and only enqueues due subscriptions onto the `fiscal`
+// queue (see FiscalSyncJob): provision `php artisan queue:work
+// --queue=fiscal,default` or sync silently never runs. Overlap + one-server
+// guards keep every-minute dispatches from duplicating work.
+Schedule::command('fiscal:sync-dispatch')->everyMinute()->withoutOverlapping()->onOneServer();

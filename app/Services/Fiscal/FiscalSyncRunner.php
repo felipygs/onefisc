@@ -387,6 +387,12 @@ final class FiscalSyncRunner
      * National NFS-e keys are 50 digits; 44-digit keys are tolerated for
      * pre-standard payloads (both fit the widened key-50 column).
      *
+     * Provenance: portal-listing rows are discovered by extracting access
+     * keys from the listing HTML (key-addressed, nsu == key — never an ADN
+     * NSU batch), so they persist as derived_from_key=true (`XML derivado`
+     * / `Derivado` badge). ADN distribution rows arrive in authoritative
+     * NSU batches and keep the ADN seal (false).
+     *
      * @param  array<int, mixed>  $items  Channel payloads are untrusted boundary data.
      */
     private function persistNfseItems(Client $client, array $items, string $origin = 'distribuicao'): void
@@ -422,6 +428,7 @@ final class FiscalSyncRunner
                     'emission_at' => $meta['emission_at'],
                     'status' => 'pending',
                     'origin' => $origin,
+                    'derived_from_key' => $origin === 'portal',
                     'has_xml' => false,
                 ]
             );

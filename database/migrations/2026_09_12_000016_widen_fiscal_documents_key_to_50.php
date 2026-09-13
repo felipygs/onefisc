@@ -19,12 +19,12 @@ return new class extends Migration
     }
 
     /**
-     * Reverse the migrations.
+     * Irreversible by design: narrowing back to 44 would truncate stored
+     * 50-digit national NFS-e keys, so down() is a deliberate no-op (still
+     * runs cleanly under migrate:rollback).
      */
     public function down(): void
     {
-        Schema::table('fiscal_documents', function (Blueprint $table) {
-            $table->string('key', 44)->nullable()->change();
-        });
+        // No-op: see above.
     }
 };

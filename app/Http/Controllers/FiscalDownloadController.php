@@ -44,12 +44,14 @@ class FiscalDownloadController extends Controller
     }
 
     /**
-     * Stream stored XML bytes. The signature is the only auth here by
-     * design (short-lived URL); the path carries ids only, never secrets.
+     * Stream stored XML bytes. Auth (session) + signature (route): the
+     * account check below fails cross-account replays closed with 404, so a
+     * leaked URL is useless outside the owner session and after expiry.
      */
     public function streamXml(int $document): Response
     {
-        $document = FiscalDocument::query()->findOrFail($document);
+        $document = $this->findDocument($document);
+        $this->authorizeDocument($document);
         $xml = $this->storage->getXml($document);
 
         abort_if($xml === null, 404);
@@ -82,11 +84,13 @@ class FiscalDownloadController extends Controller
     }
 
     /**
-     * Serve the auxiliary PDF inline for the modal iframe preview.
+     * Serve the auxiliary PDF inline for the modal iframe preview. Same
+     * auth + signature binding as the XML stream.
      */
     public function streamPdf(int $document): Response
     {
-        $document = FiscalDocument::query()->findOrFail($document);
+        $document = $this->findDocument($document);
+        $this->authorizeDocument($document);
         $pdf = $this->storage->getPdf($document);
 
         abort_if($pdf === null, 404);
@@ -98,13 +102,15 @@ class FiscalDownloadController extends Controller
     }
 
     /**
-     * Account-scoped lookup: the global scope fails closed with 404 for
-     * documents outside the current account. Explicit (not implicit
-     * binding) because binding resolves before ResolveAccountContext runs.
+     * Unscoped lookup: the caller must follow with authorizeDocument(), which
+     * compares the document's true account against the session account and
+     * fails closed with 404 on mismatch (never trusting caller input).
+     * Explicit (not implicit binding) because binding resolves before
+     * ResolveAccountContext runs.
      */
     protected function findDocument(int $id): FiscalDocument
     {
-        return FiscalDocument::query()->findOrFail($id);
+        return FiscalDocument::withoutGlobalScopes()->findOrFail($id);
     }
 
     protected function authorizeDocument(FiscalDocument $document): Account
@@ -112,7 +118,9 @@ class FiscalDownloadController extends Controller
         $account = CurrentAccount::resolve();
         abort_unless($account !== null && request()->user()?->can('operate-clients', $account), 403);
 
-        // Global scope already isolates by account; fail closed on mismatch.
+        // Explicit account comparison on the unscoped row: the global scope
+        // is not trusted here, so cross-account access fails closed with 404
+        // (no existence oracle) even if scoping ever mis-resolves.
         abort_if((int) $document->client?->account_id !== (int) $account->id, 404);
 
         return $account;

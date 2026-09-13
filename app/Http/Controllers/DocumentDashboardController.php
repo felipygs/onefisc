@@ -64,10 +64,13 @@ class DocumentDashboardController extends Controller
             ->when($status !== null, fn ($query) => $query->where('status', $status))
             ->when($origin !== null, fn ($query) => $query->where('origin', $origin))
             ->when($q !== '', fn ($query) => $query->where(function ($query) use ($q) {
-                $like = '%'.$q.'%';
-                $query->where('key', 'like', $like)
-                    ->orWhere('number', 'like', $like)
-                    ->orWhere('issuer_name', 'like', $like);
+                // Escape LIKE wildcards so %/_ match literally; the explicit
+                // ESCAPE clause keeps it literal on every driver (SQLite has
+                // no default LIKE escape character).
+                $like = '%'.addcslashes($q, '%_\\').'%';
+                $query->whereRaw('key LIKE ? ESCAPE \'\\\'', [$like])
+                    ->orWhereRaw('number LIKE ? ESCAPE \'\\\'', [$like])
+                    ->orWhereRaw('issuer_name LIKE ? ESCAPE \'\\\'', [$like]);
             }))
             ->orderBy($this->sortColumn($sort), $dir)
             ->orderBy('id', $dir)

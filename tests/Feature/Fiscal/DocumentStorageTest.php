@@ -343,3 +343,39 @@ it('keeps garbage payloads pending for retry instead of marking them complete', 
     expect($completed->has_xml)->toBeTrue()
         ->and(Storage::disk('local')->get($completed->xml_path))->toBe(nfeFullXml($key));
 });
+
+// ---------------------------------------------------------------------------
+// 8. Final review: stored paths outside fiscal/ are never trusted — getters
+//    fail closed with null (controllers answer 404), never reading abroad.
+// ---------------------------------------------------------------------------
+
+it('refuses to read stored paths outside the fiscal prefix', function () {
+    Storage::fake('local');
+
+    $client = syncClientWithCredential();
+    $storage = app(FiscalStorageService::class);
+
+    Storage::disk('local')->put('evil/outside.xml', '<nfeProc/>');
+    Storage::disk('local')->put('evil/outside.pdf', '%PDF-1.4');
+
+    $doc = pendingDocForCompletion($client, scienceKey('1'));
+    $doc->forceFill([
+        'has_xml' => true,
+        'xml_path' => 'evil/outside.xml',
+        'has_danfe' => true,
+        'pdf_path' => 'evil/outside.pdf',
+    ])->save();
+
+    expect($storage->existsXml($doc))->toBeFalse()
+        ->and($storage->getXml($doc))->toBeNull()
+        ->and($storage->existsPdf($doc))->toBeFalse()
+        ->and($storage->getPdf($doc))->toBeNull();
+
+    // Traversal shapes fail closed too.
+    $doc->forceFill(['xml_path' => '../.env', 'pdf_path' => '/etc/passwd'])->save();
+
+    expect($storage->existsXml($doc))->toBeFalse()
+        ->and($storage->getXml($doc))->toBeNull()
+        ->and($storage->existsPdf($doc))->toBeFalse()
+        ->and($storage->getPdf($doc))->toBeNull();
+});

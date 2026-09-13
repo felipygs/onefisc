@@ -46,7 +46,7 @@ final class FiscalStorageService
     {
         $path = $document->xml_path;
 
-        if (! is_string($path) || $path === '' || ! Storage::disk(self::DISK)->exists($path)) {
+        if (! self::isFiscalPath($path) || ! Storage::disk(self::DISK)->exists($path)) {
             return null;
         }
 
@@ -59,7 +59,7 @@ final class FiscalStorageService
     {
         $path = $document->xml_path;
 
-        return is_string($path) && $path !== '' && Storage::disk(self::DISK)->exists($path);
+        return self::isFiscalPath($path) && Storage::disk(self::DISK)->exists($path);
     }
 
     public function putPdf(FiscalDocument $document, string $pdf): void
@@ -83,7 +83,7 @@ final class FiscalStorageService
     {
         $path = $document->pdf_path;
 
-        if (! is_string($path) || $path === '' || ! Storage::disk(self::DISK)->exists($path)) {
+        if (! self::isFiscalPath($path) || ! Storage::disk(self::DISK)->exists($path)) {
             return null;
         }
 
@@ -96,7 +96,7 @@ final class FiscalStorageService
     {
         $path = $document->pdf_path;
 
-        return is_string($path) && $path !== '' && Storage::disk(self::DISK)->exists($path);
+        return self::isFiscalPath($path) && Storage::disk(self::DISK)->exists($path);
     }
 
     public function xmlPathFor(FiscalDocument $document): string
@@ -107,6 +107,17 @@ final class FiscalStorageService
     public function pdfPathFor(FiscalDocument $document): string
     {
         return "fiscal/{$this->accountIdFor($document)}/{$document->client_id}/{$document->id}.pdf";
+    }
+
+    /**
+     * Fail-closed path guard: only paths the service itself mints
+     * (`fiscal/{account}/{client}/{document}.xml|pdf`) are ever read.
+     * Anything else (tampered row, traversal, absolute path) reads as
+     * missing so callers answer 404.
+     */
+    private static function isFiscalPath(mixed $path): bool
+    {
+        return is_string($path) && str_starts_with($path, 'fiscal/');
     }
 
     private function accountIdFor(FiscalDocument $document): int

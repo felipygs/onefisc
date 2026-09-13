@@ -27,20 +27,14 @@ return new class extends Migration
     }
 
     /**
-     * Reverse the migrations.
+     * Irreversible by design: system-actor audits (automatic ciencia, sync
+     * cycles) already store NULL actor_user_id, so re-adding NOT NULL would
+     * fail on those rows — and deleting or backfilling them would destroy
+     * the audit trail. Down() is a deliberate no-op (still runs cleanly
+     * under migrate:rollback).
      */
     public function down(): void
     {
-        Schema::table('audit_logs', function (Blueprint $table) {
-            $table->dropForeign(['actor_user_id']);
-        });
-
-        Schema::table('audit_logs', function (Blueprint $table) {
-            $table->foreignId('actor_user_id')->nullable(false)->change();
-        });
-
-        Schema::table('audit_logs', function (Blueprint $table) {
-            $table->foreign('actor_user_id')->references('id')->on('users');
-        });
+        // No-op: see above.
     }
 };

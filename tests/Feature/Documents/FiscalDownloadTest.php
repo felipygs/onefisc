@@ -135,3 +135,44 @@ it('serves the danfe pdf for nfe and answers an honest 404 otherwise', function 
     $empty = FiscalDocument::factory()->create(['client_id' => $client->id, 'family' => 'nfe', 'has_xml' => false]);
     getJson(route('fiscal.download', $empty))->assertNotFound();
 });
+
+it('rejects cross-account replay of a valid signed stream url with 404', function () {
+    [$accountA, $adminA] = downloadAccountUser('admin');
+    [, $adminB] = downloadAccountUser('admin');
+
+    $clientA = Client::factory()->create(['account_id' => $accountA->id]);
+    $document = FiscalDocument::factory()->create(['client_id' => $clientA->id, 'family' => 'nfe']);
+    (new FiscalStorageService)->putXml($document, '<nfeProc/>');
+    (new FiscalStorageService)->putPdf($document, "%PDF-1.4\n%DANFE faux bytes\n");
+
+    actingAs($adminA);
+
+    $xmlUrl = getJson(route('fiscal.download', $document))->assertOk()->json('download_url');
+    $pdfUrl = getJson(route('fiscal.danfe', $document))->assertOk()->json('pdf_url');
+
+    // Sanity: the owner session streams both files.
+    get($xmlUrl)->assertOk();
+    get($pdfUrl)->assertOk();
+
+    // Another account replaying the still-valid signed URLs fails closed
+    // with 404 (no existence oracle), for both streams.
+    actingAs($adminB);
+    get($xmlUrl)->assertNotFound();
+    get($pdfUrl)->assertNotFound();
+});
+
+it('redirects logged-out direct hits on signed streams to login', function () {
+    [$account, $admin] = downloadAccountUser('admin');
+    $client = Client::factory()->create(['account_id' => $account->id]);
+    $document = FiscalDocument::factory()->create(['client_id' => $client->id, 'family' => 'nfe']);
+    (new FiscalStorageService)->putXml($document, '<nfeProc/>');
+
+    // Mint while authenticated, then hit the URL as a guest: auth runs
+    // before signed, so the guest is sent to login (documented behavior —
+    // the DanfeModal iframe/fetch always carry the session cookies).
+    actingAs($admin);
+    $xmlUrl = getJson(route('fiscal.download', $document))->assertOk()->json('download_url');
+
+    auth()->logout();
+    get($xmlUrl)->assertRedirect(route('login'));
+});

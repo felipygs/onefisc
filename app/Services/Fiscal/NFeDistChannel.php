@@ -13,6 +13,12 @@ use RuntimeException;
  *
  * Only fetches raw SOAP XML and delegates parsing to DistDfeParser, so no
  * vendor type ever leaks through the DistributionChannel interface.
+ *
+ * stateUf stays 'SP': DistribuicaoDFe resolves the national AN endpoint
+ * whatever the UF (vendor sefazDistDFe passes fonte='AN'; consulta derives
+ * UF from the key itself, manifesta posts to 'AN'), so UF never selects the
+ * URL — it only fills the informational cUFAutor/timezone, and Client has no
+ * UF column to derive it from (adding one is out of scope).
  */
 final class NFeDistChannel implements DistributionChannel
 {

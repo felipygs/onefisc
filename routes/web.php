@@ -58,10 +58,14 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::resource('clients', ClientController::class);
 });
 
-// Signed file streams carry no session auth by design: the short-lived
-// signature is the credential. Paths expose ids only, never storage
-// references, CNPJ or access keys.
-Route::get('fiscal/files/{document}/xml', [FiscalDownloadController::class, 'streamXml'])->name('fiscal.download.file')->middleware('signed');
-Route::get('fiscal/files/{document}/pdf', [FiscalDownloadController::class, 'streamPdf'])->name('fiscal.danfe.file')->middleware('signed');
+// Signed file streams require the session AND the signature: auth binds the
+// stream to the account context (ResolveAccountContext), the short-lived
+// signature keeps the URL opaque and expiring. The DanfeModal iframe and the
+// download fetch always run inside the authenticated session, so they keep
+// working; logged-out direct hits redirect to login, cross-account replays
+// fail closed with 404. Paths expose ids only, never storage references,
+// CNPJ or access keys.
+Route::get('fiscal/files/{document}/xml', [FiscalDownloadController::class, 'streamXml'])->name('fiscal.download.file')->middleware(['auth', 'signed']);
+Route::get('fiscal/files/{document}/pdf', [FiscalDownloadController::class, 'streamPdf'])->name('fiscal.danfe.file')->middleware(['auth', 'signed']);
 
 require __DIR__.'/settings.php';
