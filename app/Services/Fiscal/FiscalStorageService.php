@@ -38,11 +38,15 @@ final class FiscalStorageService
         $document->forceFill(['has_xml' => true, 'xml_path' => $path])->save();
     }
 
+    /**
+     * Missing path or missing file both read as null — never throws — so
+     * the ?string contract holds whatever the disk `throw` config is.
+     */
     public function getXml(FiscalDocument $document): ?string
     {
         $path = $document->xml_path;
 
-        if (! is_string($path) || $path === '') {
+        if (! is_string($path) || $path === '' || ! Storage::disk(self::DISK)->exists($path)) {
             return null;
         }
 
@@ -71,11 +75,15 @@ final class FiscalStorageService
         $document->forceFill(['has_danfe' => true, 'pdf_path' => $path])->save();
     }
 
+    /**
+     * Missing path or missing file both read as null — never throws — so
+     * the ?string contract holds whatever the disk `throw` config is.
+     */
     public function getPdf(FiscalDocument $document): ?string
     {
         $path = $document->pdf_path;
 
-        if (! is_string($path) || $path === '') {
+        if (! is_string($path) || $path === '' || ! Storage::disk(self::DISK)->exists($path)) {
             return null;
         }
 

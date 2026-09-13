@@ -102,8 +102,21 @@ final class FiscalCompletionService
             return false;
         }
 
+        $meta = FiscalXmlMeta::extract($xml, $family);
+
+        if (! self::hasAnyMeta($meta)) {
+            // Not a parseable fiscal document (garbage/foreign payload):
+            // store nothing, flip nothing, retry next cycle.
+            Log::warning('fiscal.completion.invalid_xml', [
+                'fiscal_document_id' => $document->id,
+                'family' => $family,
+            ]);
+
+            return false;
+        }
+
         $this->storage->putXml($document, $xml);
-        $this->enrichFromXml($document, $xml, $family);
+        $this->fillFromMeta($document, $meta);
 
         if (in_array($family, ['nfe', 'nfse'], true)) {
             $this->pdfs->tryRender($document);
@@ -113,12 +126,27 @@ final class FiscalCompletionService
     }
 
     /**
+     * @param  array<string, string|null>  $meta
+     */
+    private static function hasAnyMeta(array $meta): bool
+    {
+        foreach ($meta as $value) {
+            if ($value !== null) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
      * Fill only the fields the summary row left blank — never overwrite
      * metadata the distribution summary already provided.
+     *
+     * @param  array<string, string|null>  $meta  Pre-extracted (and validated) XML metadata.
      */
-    private function enrichFromXml(FiscalDocument $document, string $xml, string $family): void
+    private function fillFromMeta(FiscalDocument $document, array $meta): void
     {
-        $meta = FiscalXmlMeta::extract($xml, $family);
         $fillable = [];
 
         foreach ($meta as $field => $value) {

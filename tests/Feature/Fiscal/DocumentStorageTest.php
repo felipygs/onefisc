@@ -273,3 +273,73 @@ it('persists a 50-digit national NFS-e access key', function () {
 
     expect(FiscalDocument::withoutGlobalScopes()->findOrFail($doc->id)->key)->toBe($key);
 });
+
+// ---------------------------------------------------------------------------
+// 6. Fix round 1: a missing file reads as null (never throws), so the
+//    ?string contract holds and downstream raises LogicException.
+// ---------------------------------------------------------------------------
+
+it('returns null instead of throwing when the stored file is missing', function () {
+    Storage::fake('local');
+
+    $client = syncClientWithCredential();
+    $storage = app(FiscalStorageService::class);
+
+    $doc = pendingDocForCompletion($client, scienceKey('1'));
+    $doc->forceFill([
+        'has_xml' => true,
+        'xml_path' => "fiscal/{$client->account_id}/{$client->id}/{$doc->id}.xml",
+        'has_danfe' => true,
+        'pdf_path' => "fiscal/{$client->account_id}/{$client->id}/{$doc->id}.pdf",
+    ])->save();
+
+    // Paths point at files that were never written (e.g. lost bytes).
+    expect($storage->existsXml($doc))->toBeFalse()
+        ->and($storage->getXml($doc))->toBeNull()
+        ->and($storage->existsPdf($doc))->toBeFalse()
+        ->and($storage->getPdf($doc))->toBeNull();
+
+    // Downstream keeps its honest contract: missing XML is LogicException,
+    // never a storage FileNotFoundException.
+    expect(fn () => app(FiscalPdfService::class)->renderDanfe($doc->fresh()))
+        ->toThrow(LogicException::class);
+});
+
+// ---------------------------------------------------------------------------
+// 7. Fix round 1: a garbage payload never flips has_xml — the document stays
+//    pending and completes once the channel delivers valid XML (retry).
+// ---------------------------------------------------------------------------
+
+it('keeps garbage payloads pending for retry instead of marking them complete', function () {
+    Storage::fake('local');
+
+    $client = syncClientWithCredential();
+    $subscription = syncSubscriptionFor($client);
+    $key = scienceKey('2');
+
+    pendingDocForCompletion($client, $key);
+
+    $fake = new FakeDistChannel;
+    $fake->queuedBatches = [new ChannelBatch(items: [], lastNsu: '0')];
+    $fake->byKey[$key] = ['key' => $key, 'xml' => 'this is not xml at all {{{'];
+
+    runnerWithFakeChannel($fake)->run($subscription);
+
+    $stillPending = FiscalDocument::withoutGlobalScopes()->where('client_id', $client->id)->firstOrFail();
+
+    expect($stillPending->has_xml)->toBeFalse()
+        ->and($stillPending->xml_path)->toBeNull()
+        ->and(Storage::disk('local')->exists("fiscal/{$client->account_id}/{$client->id}/{$stillPending->id}.xml"))->toBeFalse();
+
+    // Next cycle the channel delivers the real XML: the same row completes.
+    $retry = new FakeDistChannel;
+    $retry->queuedBatches = [new ChannelBatch(items: [], lastNsu: '0')];
+    $retry->byKey[$key] = ['key' => $key, 'xml' => nfeFullXml($key)];
+
+    runnerWithFakeChannel($retry)->run($subscription->fresh());
+
+    $completed = FiscalDocument::withoutGlobalScopes()->where('client_id', $client->id)->firstOrFail();
+
+    expect($completed->has_xml)->toBeTrue()
+        ->and(Storage::disk('local')->get($completed->xml_path))->toBe(nfeFullXml($key));
+});
