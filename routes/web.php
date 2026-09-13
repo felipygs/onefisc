@@ -11,6 +11,7 @@ use App\Http\Controllers\FiscalDownloadController;
 use App\Http\Controllers\InvitationController;
 use App\Http\Controllers\OnboardingController;
 use App\Http\Controllers\PlanController;
+use App\Http\Controllers\WorkProcessController;
 use App\Models\Account;
 use Illuminate\Support\Facades\Route;
 
@@ -56,6 +57,8 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::put('clients/{client}/portal-password', [CertificateController::class, 'updatePortalPassword'])->name('certificates.portal-password');
     Route::delete('clients/{client}/certificate', [CertificateController::class, 'destroy'])->name('certificates.destroy');
     Route::resource('clients', ClientController::class);
+
+    Route::resource('work/processes', WorkProcessController::class)->names('work.processes');
 });
 
 // Signed file streams require the session AND the signature: auth binds the

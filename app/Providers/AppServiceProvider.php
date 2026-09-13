@@ -8,7 +8,9 @@ use App\Models\Invitation;
 use App\Models\MonitoringCheck;
 use App\Models\Plan;
 use App\Models\User;
+use App\Models\WorkProcess;
 use App\Observers\AuditObserver;
+use App\Policies\WorkProcessPolicy;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\Date;
 use Illuminate\Support\Facades\DB;
@@ -56,6 +58,7 @@ class AppServiceProvider extends ServiceProvider
      */
     protected function defineRoleGates(): void
     {
+        Gate::policy(WorkProcess::class, WorkProcessPolicy::class);
         Gate::define('manage-users', fn (User $u, Account $a) => $u->account_id === $a->id && in_array($u->role, ['super_admin', 'admin']));
         Gate::define('manage-certificates', fn (User $u, Account $a) => $u->account_id === $a->id && in_array($u->role, ['super_admin', 'admin']));
         $operateClients = fn (User $u, Account $a) => $u->account_id === $a->id && in_array($u->role, ['super_admin', 'admin', 'operador']);
