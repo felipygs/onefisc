@@ -18,10 +18,16 @@ import type {
     FiscalFamily,
 } from '@/types/documents';
 
-const props = defineProps<{
-    filters: DocumentFilters;
-    tableApi: Table<FiscalDocumentRow> | null;
-}>();
+const props = withDefaults(
+    defineProps<{
+        filters: DocumentFilters;
+        tableApi: Table<FiscalDocumentRow> | null;
+        baseUrl?: string;
+    }>(),
+    { baseUrl: undefined },
+);
+
+const targetUrl = computed<string>(() => props.baseUrl ?? documentsAll.url());
 
 type Option = { label: string; value: string };
 
@@ -106,7 +112,7 @@ function apply(): void {
     const term = search.value.trim();
 
     router.get(
-        documentsAll.url(),
+        targetUrl.value,
         {
             ...currentParams(),
             ...(term !== '' ? { q: term } : {}),
