@@ -12,6 +12,7 @@ use App\Policies\WorkTaskPolicy;
 use App\Support\CurrentAccount;
 use App\Support\WorkCompetence;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
@@ -48,15 +49,243 @@ class WorkViewController extends Controller
      */
     public const BOARD_STATUSES = ['backlog', 'todo', 'in_progress', 'done'];
 
-    public function overview(): Response
+    public function overview(Request $request): Response
     {
         $account = CurrentAccount::resolve();
         abort_unless($account !== null, 404);
         Gate::authorize('viewAny', WorkProcess::class);
 
-        // Full overview ships in Onda 2 (Task 3.4): zero aggregated numbers
-        // here on purpose, only the placeholder panel.
-        return Inertia::render('work/Overview');
+        $validated = $request->validate([
+            'competence' => ['sometimes', 'string', 'regex:'.WorkCompetence::PATTERN],
+        ], [
+            'competence.regex' => 'A competência deve estar no formato AAAA-MM.',
+        ]);
+
+        $competence = $validated['competence'] ?? null;
+
+        if (! is_string($competence) || $competence === '') {
+            $competence = Carbon::now()->format('Y-m');
+        }
+
+        $user = $request->user();
+        $member = $user instanceof User ? $user : null;
+
+        // GET with side effect (legacy-mandated, same as the 3.1 lists and
+        // the 3.3 full month): opening a competence materializes the missing
+        // checklist instances before aggregating.
+        WorkCompetence::materialize($account->id, $member, $competence);
+
+        $today = Carbon::today()->format('Y-m-d');
+
+        $tasks = WorkTaskPolicy::scopeVisible(
+            WorkTask::query()->where('work_tasks.account_id', $account->id),
+            $member
+        )
+            ->forCompetence($competence)
+            ->with([
+                'process:id,title',
+                'client:id,razao_social',
+                'assignee:id,name',
+            ])
+            ->orderBy('work_tasks.position')
+            ->orderBy('work_tasks.id')
+            ->get();
+
+        return Inertia::render('work/Overview', [
+            'competence' => $competence,
+            'today' => $today,
+            'overview' => $this->buildOverview($tasks, $member, $competence, $today),
+        ]);
+    }
+
+    /**
+     * Central aggregates for one competence (Task 3.4).
+     *
+     * Every panel reads the SAME visible-task set: account scope plus
+     * `WorkTaskPolicy::scopeVisible` (collaborators only reach
+     * assigned-client rows) plus the shared 3.1 `forCompetence` rule.
+     * Overdue reuses the lists' rule (open task with `due_on` before today).
+     *
+     * "Atenção" is a documented judgment call: the spec names the panel but
+     * fixes no content, so it shows the top-5 overdue tasks by age (each
+     * with its task link) plus the stale-backlog count (backlog tasks in the
+     * competence that never started). Unassigned tasks count in situação and
+     * envelhecimento but never gain a member row in carga/equipe — those
+     * rows are members only, and members without tasks are omitted. A
+     * collaborator (`user`) sees only their own member row.
+     *
+     * Out-of-scope fiscal concepts stay out of this payload entirely (the
+     * four banned concepts from the work-overview spec appear neither in
+     * keys nor in texts).
+     *
+     * @param  Collection<int, WorkTask>  $tasks
+     * @return array<string, mixed>
+     */
+    protected function buildOverview(Collection $tasks, ?User $user, string $competence, string $today): array
+    {
+        $counts = array_fill_keys(self::BOARD_STATUSES, 0);
+
+        /** @var list<array{task: WorkTask, age: int}> $overdue */
+        $overdue = [];
+
+        foreach ($tasks as $task) {
+            $status = in_array($task->status, self::BOARD_STATUSES, true) ? $task->status : 'backlog';
+            $counts[$status]++;
+
+            $dueOn = $task->due_on?->format('Y-m-d');
+
+            if ($task->status !== 'done' && $dueOn !== null && $dueOn < $today) {
+                $overdue[] = [
+                    'task' => $task,
+                    // Carbon 3 diffs are signed by default: absolute age in
+                    // days, since overdue rows are always due before today.
+                    'age' => (int) Carbon::parse($today)->diffInDays($task->due_on, true),
+                ];
+            }
+        }
+
+        // Donut: an association (process–Client pair) counts as completed
+        // WHEN every visible task in the competence is `done`.
+        $openByPair = [];
+
+        foreach ($tasks as $task) {
+            $pair = ((int) $task->work_process_id).':'.((int) $task->client_id);
+            $openByPair[$pair] = ($openByPair[$pair] ?? 0) + ($task->status === 'done' ? 0 : 1);
+        }
+
+        $associationsDone = 0;
+
+        foreach ($openByPair as $open) {
+            if ($open === 0) {
+                $associationsDone++;
+            }
+        }
+
+        $associationsTotal = count($openByPair);
+
+        $manager = $this->manages($user);
+        $selfId = $user instanceof User && ! $manager ? $user->id : null;
+
+        /** @var array<int, array{member: array{id: int, name: string}, backlog: int, todo: int, in_progress: int, done: int, total: int}> $byMember */
+        $byMember = [];
+
+        foreach ($tasks as $task) {
+            if ($task->assigned_user_id === null) {
+                continue;
+            }
+
+            $uid = (int) $task->assigned_user_id;
+
+            if ($selfId !== null && $uid !== $selfId) {
+                continue;
+            }
+
+            if (! isset($byMember[$uid])) {
+                $assigneeName = $task->assignee === null ? "Membro {$uid}" : $task->assignee->name;
+                $byMember[$uid] = [
+                    'member' => ['id' => $uid, 'name' => $assigneeName],
+                    'backlog' => 0,
+                    'todo' => 0,
+                    'in_progress' => 0,
+                    'done' => 0,
+                    'total' => 0,
+                ];
+            }
+
+            $status = in_array($task->status, self::BOARD_STATUSES, true) ? $task->status : 'backlog';
+            $byMember[$uid][$status]++;
+            $byMember[$uid]['total']++;
+        }
+
+        $load = array_values($byMember);
+
+        usort($load, fn (array $a, array $b): int => [$b['total'], $a['member']['name'], $a['member']['id']]
+            <=> [$a['total'], $b['member']['name'], $b['member']['id']]);
+
+        $team = array_map(fn (array $row): array => [
+            ...$row,
+            'completion_pct' => $row['total'] > 0 ? (int) round($row['done'] / $row['total'] * 100) : 0,
+            'link' => ['route' => 'work.tasks.index', 'competence' => $competence, 'assignee_id' => $row['member']['id']],
+        ], $load);
+
+        $bands = ['1-7' => 0, '8-15' => 0, '16-30' => 0, '31+' => 0];
+
+        foreach ($overdue as $row) {
+            $age = $row['age'];
+
+            if ($age <= 7) {
+                $bands['1-7']++;
+            } elseif ($age <= 15) {
+                $bands['8-15']++;
+            } elseif ($age <= 30) {
+                $bands['16-30']++;
+            } else {
+                $bands['31+']++;
+            }
+        }
+
+        usort($overdue, fn (array $a, array $b): int => [$b['age'], $a['task']->id] <=> [$a['age'], $b['task']->id]);
+
+        $attention = array_map(
+            fn (array $row): array => $this->serializeAttentionTask($row['task'], $row['age']),
+            array_slice($overdue, 0, 5)
+        );
+
+        $links = [];
+
+        foreach (self::BOARD_STATUSES as $status) {
+            $links[$status] = ['route' => 'work.tasks.index', 'competence' => $competence, 'status' => $status];
+        }
+
+        $links['overdue'] = ['route' => 'work.processos', 'view' => 'tarefas', 'competence' => $competence];
+
+        return [
+            'competence' => $competence,
+            'today' => $today,
+            'hasData' => $tasks->isNotEmpty(),
+            'counters' => [
+                ...$counts,
+                'overdue' => count($overdue),
+                'total' => $tasks->count(),
+            ],
+            'links' => $links,
+            'donut' => [
+                'done' => $associationsDone,
+                'total' => $associationsTotal,
+                'label' => "{$associationsDone} de {$associationsTotal}",
+            ],
+            'load' => $load,
+            'aging' => ['bands' => $bands, 'total' => count($overdue)],
+            'attention' => ['overdue' => $attention, 'stale_backlog' => $counts['backlog']],
+            'team' => $team,
+        ];
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    protected function serializeAttentionTask(WorkTask $task, int $age): array
+    {
+        return [
+            'id' => $task->id,
+            'title' => $task->title,
+            'status' => $task->status,
+            'due_on' => $task->due_on?->format('Y-m-d'),
+            'age_days' => $age,
+            'process' => $task->process === null ? null : [
+                'id' => $task->process->id,
+                'title' => $task->process->title,
+            ],
+            'client' => $task->client === null ? null : [
+                'id' => $task->client->id,
+                'razao_social' => $task->client->razao_social,
+            ],
+            'assignee' => $task->assignee === null ? null : [
+                'id' => $task->assignee->id,
+                'name' => $task->assignee->name,
+            ],
+            'link' => ['route' => 'work.tasks.show', 'task' => $task->id],
+        ];
     }
 
     /**
