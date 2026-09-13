@@ -62,9 +62,7 @@ const availableSections = computed<string[]>(() => {
     }
 
     if (props.document?.has_danfe) {
-        sections.push(
-            props.document.family === 'nfse' ? 'DANFSe' : 'DANFE',
-        );
+        sections.push(props.document.family === 'nfse' ? 'DANFSe' : 'DANFE');
     }
 
     return sections;
@@ -82,9 +80,7 @@ const pendingSections = computed<string[]>(() => {
         !props.document.has_danfe &&
         props.document.family !== 'cte'
     ) {
-        sections.push(
-            props.document.family === 'nfse' ? 'DANFSe' : 'DANFE',
-        );
+        sections.push(props.document.family === 'nfse' ? 'DANFSe' : 'DANFE');
     }
 
     return sections;
@@ -122,7 +118,9 @@ async function copyKey(): Promise<void> {
             <div v-if="document" class="flex flex-col gap-5">
                 <div class="flex flex-wrap items-center gap-2">
                     <UBadge
-                        :color="STATUS_COLORS[document.status ?? ''] ?? 'neutral'"
+                        :color="
+                            STATUS_COLORS[document.status ?? ''] ?? 'neutral'
+                        "
                         variant="subtle"
                         data-test="document-detail-status"
                     >
@@ -271,10 +269,7 @@ async function copyKey(): Promise<void> {
                             :key="section"
                             class="text-muted flex items-center gap-2 text-sm"
                         >
-                            <UIcon
-                                name="i-lucide-clock"
-                                class="size-4"
-                            />
+                            <UIcon name="i-lucide-clock" class="size-4" />
                             {{ section }}
                         </li>
                     </ul>

@@ -60,7 +60,12 @@ function firstError(errors: Record<string, string | string[]>): string {
 }
 
 function onSubmit(): void {
-    if (!canManage.value || !pfxFile.value || password.value === '' || sending.value) {
+    if (
+        !canManage.value ||
+        !pfxFile.value ||
+        password.value === '' ||
+        sending.value
+    ) {
         return;
     }
 
@@ -112,7 +117,11 @@ function onSubmit(): void {
                 data-test="certificate-upload-alert"
             />
 
-            <UForm :state="formState" class="flex flex-col gap-4" @submit="onSubmit">
+            <UForm
+                :state="formState"
+                class="flex flex-col gap-4"
+                @submit="onSubmit"
+            >
                 <UFormField label="Arquivo PFX" name="pfx" required>
                     <input
                         type="file"
@@ -123,11 +132,7 @@ function onSubmit(): void {
                     />
                 </UFormField>
 
-                <UFormField
-                    label="Senha do PFX"
-                    name="password"
-                    required
-                >
+                <UFormField label="Senha do PFX" name="password" required>
                     <UInput
                         v-model="password"
                         type="password"

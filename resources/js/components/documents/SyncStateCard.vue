@@ -59,7 +59,9 @@ function formatDate(value: string | null): string {
 
         <div class="flex flex-col gap-4">
             <div>
-                <p class="text-muted text-xs uppercase">Capacidade por família</p>
+                <p class="text-muted text-xs uppercase">
+                    Capacidade por família
+                </p>
                 <ul class="mt-2 flex flex-col gap-2">
                     <li
                         v-for="family in FAMILIES"
@@ -80,7 +82,9 @@ function formatDate(value: string | null): string {
 
             <dl class="grid gap-4 sm:grid-cols-3">
                 <div>
-                    <dt class="text-muted text-xs uppercase">Última execução</dt>
+                    <dt class="text-muted text-xs uppercase">
+                        Última execução
+                    </dt>
                     <dd
                         class="mt-1 text-sm tabular-nums"
                         data-test="sync-last-run"

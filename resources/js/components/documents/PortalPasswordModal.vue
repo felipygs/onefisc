@@ -103,7 +103,11 @@ function onSubmit(): void {
                 data-test="certificate-portal-alert"
             />
 
-            <UForm :state="formState" class="flex flex-col gap-4" @submit="onSubmit">
+            <UForm
+                :state="formState"
+                class="flex flex-col gap-4"
+                @submit="onSubmit"
+            >
                 <UFormField
                     label="Senha do portal"
                     name="portal_password"

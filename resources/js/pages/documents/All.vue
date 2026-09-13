@@ -266,10 +266,7 @@ function onDanfeDownload(): void {
                 @view-danfe="onViewDanfe"
             />
 
-            <DetailSlideover
-                v-model:open="detailOpen"
-                :document="selected"
-            />
+            <DetailSlideover v-model:open="detailOpen" :document="selected" />
 
             <DanfeModal
                 v-model:open="danfeOpen"
