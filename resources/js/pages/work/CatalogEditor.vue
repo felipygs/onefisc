@@ -82,21 +82,33 @@ type EditorTab =
 
 const EDITOR_TAB_KEY = 'work.catalog.editor.tab.v1';
 
-const activeTab = ref<EditorTab>(
-    (() => {
-        try {
-            const raw = window.localStorage.getItem(EDITOR_TAB_KEY);
-            return raw === 'clientes' ||
-                raw === 'prazo' ||
-                raw === 'tarefas' ||
-                raw === 'recorrencia'
-                ? (raw as EditorTab)
-                : 'associacao';
-        } catch {
+// A instalação do marketplace (4.2) redireciona para o editor com `?tab=`:
+// `associacao` é o valor canônico, `association` (EN) é o alias que o
+// redirect de install envia. O query tem precedência e é persistido como
+// as trocas manuais; valores desconhecidos caem no comportamento existente.
+function resolveInitialTab(): EditorTab {
+    try {
+        const query = new URLSearchParams(window.location.search).get('tab');
+
+        if (query === 'associacao' || query === 'association') {
+            window.localStorage.setItem(EDITOR_TAB_KEY, 'associacao');
+
             return 'associacao';
         }
-    })(),
-);
+
+        const raw = window.localStorage.getItem(EDITOR_TAB_KEY);
+        return raw === 'clientes' ||
+            raw === 'prazo' ||
+            raw === 'tarefas' ||
+            raw === 'recorrencia'
+            ? (raw as EditorTab)
+            : 'associacao';
+    } catch {
+        return 'associacao';
+    }
+}
+
+const activeTab = ref<EditorTab>(resolveInitialTab());
 
 function selectTab(tab: EditorTab): void {
     activeTab.value = tab;
