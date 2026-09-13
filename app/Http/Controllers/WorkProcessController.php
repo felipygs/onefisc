@@ -69,6 +69,7 @@ class WorkProcessController extends Controller
 
     public function show(int|string $process): Response
     {
+        abort_unless(CurrentAccount::resolve() !== null, 404);
         $model = $this->findProcess($process);
         Gate::authorize('view', $model);
 
@@ -79,6 +80,7 @@ class WorkProcessController extends Controller
 
     public function edit(int|string $process): Response
     {
+        abort_unless(CurrentAccount::resolve() !== null, 404);
         $model = $this->findProcess($process);
         Gate::authorize('update', $model);
 
@@ -89,6 +91,7 @@ class WorkProcessController extends Controller
 
     public function update(UpdateWorkProcessRequest $request, int|string $process): RedirectResponse
     {
+        abort_unless(CurrentAccount::resolve() !== null, 404);
         $model = $this->findProcess($process);
         $validated = $request->validated();
         $definitions = $validated['definitions'] ?? null;
@@ -107,6 +110,7 @@ class WorkProcessController extends Controller
 
     public function destroy(int|string $process): RedirectResponse
     {
+        abort_unless(CurrentAccount::resolve() !== null, 404);
         $model = $this->findProcess($process);
         Gate::authorize('delete', $model);
 

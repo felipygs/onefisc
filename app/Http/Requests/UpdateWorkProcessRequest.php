@@ -13,6 +13,9 @@ class UpdateWorkProcessRequest extends FormRequest
     {
         // Scoped lookup runs after account middleware, so foreign or malformed
         // ids fail with 404 here instead of leaking a 403 from the policy.
+        // The null-context guard mirrors the controller: without an account
+        // the global scope would not apply and existence could leak.
+        abort_unless(CurrentAccount::resolve() !== null, 404);
         $process = WorkProcess::query()->findOrFail($this->route('process'));
 
         return $this->user()?->can('update', $process) ?? false;

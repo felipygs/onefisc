@@ -232,6 +232,48 @@ it('shows collaborators only processes with clients assigned to them', function 
             ->where('processes.data.0.title', 'Processo atribuído'));
 });
 
+it('leaves the checklist untouched when update omits the definitions key', function () {
+    [$account, $admin] = workAccountUser('admin');
+    $this->actingAs($admin);
+
+    $process = WorkProcess::factory()->create(['account_id' => $account->id, 'title' => 'Original']);
+    $first = WorkProcessTaskDefinition::factory()->create([
+        'work_process_id' => $process->id, 'title' => 'Mantido A', 'position' => 0,
+    ]);
+    $second = WorkProcessTaskDefinition::factory()->create([
+        'work_process_id' => $process->id, 'title' => 'Mantido B', 'position' => 1,
+    ]);
+
+    $this->put(route('work.processes.update', $process), ['title' => 'Título novo'])
+        ->assertRedirect(route('work.processes.index'));
+
+    expect($process->fresh()?->title)->toBe('Título novo')
+        ->and($process->definitions()->orderBy('position')->pluck('title')->all())
+        ->toBe(['Mantido A', 'Mantido B'])
+        ->and(WorkProcessTaskDefinition::find($first->id)?->id)->toBe($first->id)
+        ->and(WorkProcessTaskDefinition::find($second->id)?->id)->toBe($second->id);
+});
+
+it('clears every definition when update sends an empty definitions array', function () {
+    [$account, $admin] = workAccountUser('admin');
+    $this->actingAs($admin);
+
+    $process = WorkProcess::factory()->create(['account_id' => $account->id]);
+    WorkProcessTaskDefinition::factory()->create([
+        'work_process_id' => $process->id, 'title' => 'Removido A', 'position' => 0,
+    ]);
+    WorkProcessTaskDefinition::factory()->create([
+        'work_process_id' => $process->id, 'title' => 'Removido B', 'position' => 1,
+    ]);
+
+    $this->put(route('work.processes.update', $process), [
+        'title' => $process->title,
+        'definitions' => [],
+    ])->assertRedirect(route('work.processes.index'));
+
+    expect($process->definitions()->count())->toBe(0);
+});
+
 it('lets collaborators view assigned processes but not unassigned ones', function () {
     [$account, $user] = workAccountUser('user');
     $this->actingAs($user);
