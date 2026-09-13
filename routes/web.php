@@ -12,6 +12,7 @@ use App\Http\Controllers\InvitationController;
 use App\Http\Controllers\OnboardingController;
 use App\Http\Controllers\PlanController;
 use App\Http\Controllers\WorkCatalogController;
+use App\Http\Controllers\WorkMarketplaceController;
 use App\Http\Controllers\WorkProcessController;
 use App\Http\Controllers\WorkTaskController;
 use App\Http\Controllers\WorkViewController;
@@ -67,6 +68,9 @@ Route::middleware(['auth', 'verified'])->group(function () {
 
     Route::get('work/catalog', [WorkCatalogController::class, 'index'])->name('work.catalog.index');
     Route::get('work/catalog/{process}', [WorkCatalogController::class, 'show'])->name('work.catalog.show');
+
+    Route::get('work/marketplace', [WorkMarketplaceController::class, 'index'])->name('work.marketplace.index');
+    Route::post('work/marketplace/{listing}/install', [WorkMarketplaceController::class, 'install'])->name('work.marketplace.install');
 
     Route::resource('work/tasks', WorkTaskController::class)->names('work.tasks');
     Route::patch('work/tasks/{task}/move', [WorkTaskController::class, 'move'])->name('work.tasks.move');

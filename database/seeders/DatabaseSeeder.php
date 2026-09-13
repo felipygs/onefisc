@@ -21,5 +21,8 @@ class DatabaseSeeder extends Seeder
             'name' => 'Test User',
             'email' => 'test@example.com',
         ]);
+
+        // Idempotent by slug: safe to run on every deploy.
+        $this->call(WorkMarketplaceSeeder::class);
     }
 }
