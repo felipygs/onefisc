@@ -333,7 +333,7 @@ function neighbor(card: BoardCard, direction: -1 | 1): BoardStatus | null {
                                 <li
                                     v-for="client in process.clients"
                                     :key="client.id"
-                                    :data-test="`work-company-${client.id}`"
+                                    :data-test="`work-company-${process.id}-${client.id}`"
                                     class="bg-elevated/25 rounded-md p-2"
                                 >
                                     <UButton
@@ -347,7 +347,7 @@ function neighbor(card: BoardCard, direction: -1 | 1): BoardStatus | null {
                                                 `c:${process.id}:${client.id}`,
                                             )
                                         "
-                                        :data-test="`work-company-toggle-${client.id}`"
+                                        :data-test="`work-company-toggle-${process.id}-${client.id}`"
                                         @click="
                                             toggleExpanded(
                                                 `c:${process.id}:${client.id}`,
