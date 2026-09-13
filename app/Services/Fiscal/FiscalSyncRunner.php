@@ -9,6 +9,7 @@ use App\Models\FiscalCoverageEvidence;
 use App\Models\FiscalDocument;
 use App\Models\FiscalSyncCursor;
 use App\Models\FiscalSyncSubscription;
+use App\Services\AuditService;
 use App\Services\PlanLimitService;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Validation\ValidationException;
@@ -44,17 +45,53 @@ final class FiscalSyncRunner
 {
     private const MAX_PAGES_PER_RUN = 20;
 
+    public const AUDIT_CYCLE = 'fiscal.sync.cycle';
+
     public function __construct(
         private readonly FiscalChannelFactory $channels = new FiscalChannelFactory,
         private readonly ScienceService $science = new ScienceService,
         private readonly PlanLimitService $limits = new PlanLimitService,
         private readonly FiscalCompletionService $completion = new FiscalCompletionService,
+        private readonly ?AuditService $audit = null,
     ) {}
 
+    /**
+     * Run one incremental sync cycle and audit its outcome (task 5.1): every
+     * executed cycle writes exactly one `fiscal.sync.cycle` audit with a
+     * NULL (system) actor, the Client's Account as origin+target, and a
+     * secret-free metadata payload (client_id, family, new_documents,
+     * result, plus a short detail such as blocked_until or reason).
+     *
+     * A channel/transport exception never escapes: it becomes a `failed`
+     * result with the exception CLASS as the short reason (never the
+     * message, which may carry provider payloads or secrets).
+     */
     public function run(FiscalSyncSubscription $subscription): SyncResult
     {
         $subscription = FiscalSyncSubscription::withoutGlobalScopes()->findOrFail($subscription->id);
 
+        $failureReason = null;
+
+        try {
+            $result = $this->runInner($subscription);
+        } catch (Throwable $e) {
+            Log::warning('fiscal.sync.failed', [
+                'client_id' => $subscription->client_id,
+                'family' => $subscription->family,
+                'error' => $e::class,
+            ]);
+
+            $failureReason = class_basename($e);
+            $result = new SyncResult(status: 'failed', lastNsu: $this->currentNsu($subscription));
+        }
+
+        $this->auditCycle($subscription, $result, $failureReason);
+
+        return $result;
+    }
+
+    private function runInner(FiscalSyncSubscription $subscription): SyncResult
+    {
         if ($subscription->blocked_until !== null && $subscription->blocked_until->isFuture()) {
             return new SyncResult(status: 'paused', fetched: 0, lastNsu: $this->currentNsu($subscription));
         }
@@ -136,6 +173,87 @@ final class FiscalSyncRunner
         $this->runCompletion($client, $channel, $subscription->family);
 
         return new SyncResult(status: $fetched > 0 ? 'synced' : 'empty', fetched: $fetched, lastNsu: $lastNsu);
+    }
+
+    /**
+     * Map the precise runner status onto the five audited cycle results:
+     * ok (synced/empty), blocked (paused/limited), suspended, volume_exhausted
+     * or failed (unknown/failed). The precise status rides along as detail.
+     */
+    private function cycleResult(SyncResult $result): string
+    {
+        return match ($result->status) {
+            'synced', 'empty' => 'ok',
+            'paused', 'limited' => 'blocked',
+            'suspended' => 'suspended',
+            'volume_exhausted' => 'volume_exhausted',
+            default => 'failed',
+        };
+    }
+
+    /**
+     * Best-effort cycle audit (task 5.1): one row per executed cycle, system
+     * actor, secret-free metadata. Never throws.
+     */
+    private function auditCycle(FiscalSyncSubscription $subscription, SyncResult $result, ?string $failureReason = null): void
+    {
+        try {
+            $client = Client::withoutGlobalScopes()->find($subscription->client_id);
+
+            if ($client === null) {
+                return;
+            }
+
+            $metadata = [
+                'client_id' => $client->id,
+                'family' => $subscription->family,
+                'new_documents' => $result->fetched,
+                'result' => $this->cycleResult($result),
+                'status' => $result->status,
+            ];
+
+            $reason = $failureReason ?? match ($result->status) {
+                'paused' => $result->pause,
+                'suspended' => 'credential_missing_or_expired',
+                'volume_exhausted' => 'plan_volume_exhausted',
+                'limited', 'unknown' => $this->coverageReason($subscription),
+                default => null,
+            };
+
+            if (is_string($reason) && $reason !== '') {
+                $metadata['reason'] = $reason;
+            }
+
+            $blockedUntil = $subscription->blocked_until;
+
+            if ($blockedUntil !== null && $result->status === 'paused') {
+                $metadata['blocked_until'] = $blockedUntil->toIso8601String();
+            }
+
+            ($this->audit ?? new AuditService)->recordSystem(
+                action: self::AUDIT_CYCLE,
+                accountId: (int) $client->account_id,
+                metadata: $metadata,
+            );
+        } catch (Throwable $e) {
+            Log::warning('fiscal.sync.audit_skipped', [
+                'client_id' => $subscription->client_id,
+                'family' => $subscription->family,
+                'error' => $e::class,
+            ]);
+        }
+    }
+
+    private function coverageReason(FiscalSyncSubscription $subscription): ?string
+    {
+        $evidence = FiscalCoverageEvidence::withoutGlobalScopes()
+            ->where('client_id', $subscription->client_id)
+            ->where('family', $subscription->family)
+            ->first();
+
+        $reason = $evidence?->reason;
+
+        return is_string($reason) && $reason !== '' ? $reason : null;
     }
 
     /**

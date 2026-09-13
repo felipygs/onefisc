@@ -127,7 +127,33 @@ class HandleInertiaRequests extends Middleware
             'invitations.store' => 'Enviou um Convite.',
             'invitations.accept' => 'Aceitou um Convite.',
             'plans.update' => 'Trocou o Plan de uma Account.',
+            'certificates.store' => ($metadata['replaced'] ?? false)
+                ? 'Substituiu o certificado digital do Client.'
+                : 'Instalou o certificado digital do Client.',
+            'certificates.portal-password' => 'Atualizou a senha do portal do Client.',
+            'certificates.destroy' => 'Removeu o certificado digital do Client.',
+            'fiscal.science.auto' => 'Registrou ciência automática de um documento fiscal.',
+            'fiscal.sync.cycle' => self::syncCycleBody($metadata),
             default => $log->action,
+        };
+    }
+
+    /**
+     * @param  array<string, mixed>  $metadata
+     */
+    protected static function syncCycleBody(array $metadata): string
+    {
+        return match ($metadata['result'] ?? null) {
+            'ok' => match (true) {
+                ($metadata['new_documents'] ?? 0) === 0 => 'Sincronização fiscal concluída: nenhum documento novo.',
+                ($metadata['new_documents'] ?? 0) === 1 => 'Sincronização fiscal concluída: 1 documento novo.',
+                default => 'Sincronização fiscal concluída: '.(int) ($metadata['new_documents'] ?? 0).' documentos novos.',
+            },
+            'blocked' => 'Sincronização fiscal pausada pela SEFAZ. Nova tentativa na próxima janela.',
+            'suspended' => 'Sincronização fiscal suspensa: certificado ausente ou expirado.',
+            'volume_exhausted' => 'Sincronização fiscal pausada: volume do Plan esgotado.',
+            'failed' => 'Sincronização fiscal falhou. Nova tentativa no próximo ciclo.',
+            default => 'Sincronização fiscal executada.',
         };
     }
 }

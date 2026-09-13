@@ -45,4 +45,28 @@ class AuditService
             return null;
         }
     }
+
+    /**
+     * Record a system-actor event (queue/runner context, no authenticated
+     * user): actor NULL, origin and target both the given Account. Never
+     * throws: audit is best-effort.
+     *
+     * @param  array<string, mixed>  $metadata
+     */
+    public function recordSystem(string $action, int $accountId, array $metadata = []): ?AuditLog
+    {
+        try {
+            return AuditLog::withoutGlobalScopes()->create([
+                'actor_user_id' => null,
+                'origin_account_id' => $accountId,
+                'target_account_id' => $accountId,
+                'action' => $action,
+                'metadata' => $metadata,
+            ]);
+        } catch (\Throwable $e) {
+            Log::warning('audit.record_failed', ['action' => $action, 'error' => $e->getMessage()]);
+
+            return null;
+        }
+    }
 }
