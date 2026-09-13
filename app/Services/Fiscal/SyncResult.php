@@ -4,7 +4,8 @@ namespace App\Services\Fiscal;
 
 /**
  * Outcome of one FiscalSyncRunner cycle (cursor mechanics + auto-ciencia
- * with pending persistence per task 3.3; XML bytes land in task 4.1).
+ * with pending persistence per task 3.3 + XML completion on private disk
+ * per task 4.1).
  */
 final readonly class SyncResult
 {

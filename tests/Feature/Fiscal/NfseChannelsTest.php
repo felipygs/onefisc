@@ -223,8 +223,9 @@ it('falls back to the portal channel with the stored password when ADN fails', f
         ->and($portal->fetchSinceCalls)->toBe(1)
         ->and($portal->passwordSeen)->toBe('portal-secret-1');
 
-    // Fallback result counts (fetched), but row persistence is 4.1 work.
-    expect(FiscalDocument::withoutGlobalScopes()->where('client_id', $client->id)->count())->toBe(0);
+    // Fallback rows persist as pending (task 4.1); the ADN cursor is
+    // untouched (key-addressed portal content never moves it).
+    expect(FiscalDocument::withoutGlobalScopes()->where('client_id', $client->id)->count())->toBe(2);
 });
 
 // ---------------------------------------------------------------------------
@@ -267,12 +268,10 @@ it('records terminal portal_captcha coverage without blind retries', function ()
 // 5. Adherent municipality happy path -> documents flow, no evidence.
 //
 // Scope boundary (documented decision): the batch items (keys) flow through
-// the channel into the runner (fetched + cursor advance), but NO
-// FiscalDocument rows are persisted here. Real NFS-e access keys are 50
-// digits while fiscal_documents.key is string(44) and ScienceService pins
-// 44-digit keys: widening that column + the key validation + the 44-digit UI
-// assumptions is 4.1 work (guarda de XML + metadados), which persists BEFORE
-// the cursor advances. Pinning count 0 below guards that boundary.
+// the channel into the runner (fetched + cursor advance), and task 4.1
+// persists the FiscalDocument rows BEFORE the cursor advances (national
+// keys are 50 digits on the widened key-50 column; 44-digit pre-standard
+// keys are tolerated). The full XML bytes land in the completion step.
 // ---------------------------------------------------------------------------
 
 it('flows documents for an adherent municipality without coverage evidence', function () {
@@ -298,7 +297,8 @@ it('flows documents for an adherent municipality without coverage evidence', fun
         ->and($result->lastNsu)->toBe('34');
 
     expect(FiscalCoverageEvidence::withoutGlobalScopes()->where('client_id', $client->id)->count())->toBe(0)
-        ->and(FiscalDocument::withoutGlobalScopes()->where('client_id', $client->id)->count())->toBe(0)
+        ->and(FiscalDocument::withoutGlobalScopes()->where('client_id', $client->id)->count())->toBe(2)
+        ->and(FiscalDocument::withoutGlobalScopes()->where('client_id', $client->id)->where('has_xml', false)->count())->toBe(2)
         ->and(FiscalSyncCursor::withoutGlobalScopes()->where('client_id', $client->id)->firstOrFail()->last_nsu)
         ->toBe('34');
 });

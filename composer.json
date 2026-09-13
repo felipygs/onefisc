@@ -10,6 +10,7 @@
     "license": "MIT",
     "require": {
         "php": "^8.3",
+        "doctrine/dbal": "^4.4",
         "inertiajs/inertia-laravel": "^3.0",
         "laravel/chisel": "^0.1.0",
         "laravel/fortify": "^1.37.2",
@@ -17,6 +18,7 @@
         "laravel/tinker": "^3.0",
         "laravel/wayfinder": "^0.1.14",
         "nfephp-org/sped-cte": "^5.0",
+        "nfephp-org/sped-da": "^1.1",
         "nfephp-org/sped-nfe": "^5.2"
     },
     "require-dev": {

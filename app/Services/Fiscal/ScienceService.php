@@ -18,8 +18,9 @@ use Throwable;
  *
  * "Download" here means manifesting ciencia (which RELEASES the XML at
  * SEFAZ) + persisting the PENDING row (summary metadata, has_xml=false).
- * Fetching the XML bytes + writing them to private disk stays in task 4.1:
- * this service never writes XML files and creates no storage paths.
+ * Fetching the XML bytes + writing them to private disk happens in the
+ * completion step (FiscalCompletionService, task 4.1): this service never
+ * writes XML files and creates no storage paths.
  *
  * NF-e: manifest ciencia per summary key, then persist the document as
  * pending with a system (NULL actor) action + audit row. CT-e has no
