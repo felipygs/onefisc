@@ -260,3 +260,23 @@ it('materializes cascade statuses with definition defaults and null dates', func
         ->and($tasks[0]->start_at)->toBeNull()
         ->and($tasks[0]->due_on)->toBeNull();
 });
+
+it('materializes only reachable pairs when a collaborator opens a competence', function () {
+    [$account, $user] = workAccountUser('user');
+    $mine = Client::factory()->create(['account_id' => $account->id]);
+    $other = Client::factory()->create(['account_id' => $account->id]);
+    assignClientToUser($mine, $user);
+    $process = competenceProcess($account);
+    competenceAssociate($process, $mine);
+    competenceAssociate($process, $other);
+    $this->actingAs($user);
+
+    $this->get(route('work.tasks.index', ['competence' => '2026-09']))
+        ->assertOk()
+        ->assertInertia(fn ($page) => $page
+            ->component('Work/Tasks/Index', false)
+            ->has('tasks.data', 2));
+
+    expect(WorkTask::where('work_process_id', $process->id)->where('client_id', $mine->id)->count())->toBe(2)
+        ->and(WorkTask::where('work_process_id', $process->id)->where('client_id', $other->id)->count())->toBe(0);
+});

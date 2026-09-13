@@ -102,6 +102,13 @@ class WorkCompetence
      * opens into a single instance. New rows reuse the 2.2 cascade status
      * and copy priority/assignee/department from the definition; dates stay
      * NULL (Task 3.2 owns dating).
+     *
+     * Write visibility matches the reads: managers materialize every
+     * association of the visible processes, while collaborators only
+     * materialize pairs whose Client is assigned to them via `client_user`
+     * — the same assigned-client rule `WorkTaskPolicy::scopeVisible`
+     * enforces on reads — so an open never writes rows the opener cannot
+     * reach.
      */
     public static function materialize(int $accountId, ?User $user, string $competence): void
     {
@@ -129,9 +136,22 @@ class WorkCompetence
             return;
         }
 
-        DB::transaction(function () use ($accountId, $competence, $processIds): void {
+        // ONE query up front: the opener's reachable clients, account-scoped.
+        // Managers keep null (every pair); collaborators intersect each
+        // process's associations with this list below.
+        $assignedClientIds = null;
+
+        if (! $manager) {
+            $assignedClientIds = DB::table('client_user as cu')
+                ->join('clients as c', 'c.id', '=', 'cu.client_id')
+                ->where('c.account_id', $accountId)
+                ->where('cu.user_id', $user?->id)
+                ->pluck('cu.client_id')->map(fn ($id) => (int) $id)->all();
+        }
+
+        DB::transaction(function () use ($accountId, $competence, $processIds, $assignedClientIds): void {
             foreach ($processIds as $processId) {
-                self::materializeProcess($accountId, $processId, $competence);
+                self::materializeProcess($accountId, $processId, $competence, $assignedClientIds);
             }
         });
     }
@@ -142,8 +162,12 @@ class WorkCompetence
      * lock — not the index — is what keeps racing opens from
      * double-materializing, while the unique index stays as backstop for
      * the dated rows.
+     *
+     * @param  list<int>|null  $assignedClientIds  Null for managers (every
+     *                                             pair); collaborators only
+     *                                             write their assigned pairs.
      */
-    protected static function materializeProcess(int $accountId, int $processId, string $competence): void
+    protected static function materializeProcess(int $accountId, int $processId, string $competence, ?array $assignedClientIds = null): void
     {
         $locked = WorkProcess::query()
             ->where('work_processes.account_id', $accountId)
@@ -162,6 +186,10 @@ class WorkCompetence
         }
 
         $clientIds = $locked->processClients()->pluck('client_id')->map(fn ($id) => (int) $id)->all();
+
+        if ($assignedClientIds !== null) {
+            $clientIds = array_values(array_intersect($clientIds, $assignedClientIds));
+        }
 
         if ($clientIds === []) {
             return;
