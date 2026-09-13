@@ -11,7 +11,9 @@ use App\Services\Fiscal\DistributionChannel;
 use App\Services\Fiscal\FiscalChannelFactory;
 use App\Services\Fiscal\FiscalSyncRunner;
 use App\Services\Fiscal\NFeDistChannel;
+use App\Services\Fiscal\NfseAdnChannel;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Crypt;
 use NFePHP\CTe\Tools as CTeTools;
 use NFePHP\NFe\Tools as NFeTools;
 
@@ -350,10 +352,19 @@ it('parses a key consult into a document array and null when absent', function (
         ->and(DistDfeParser::parseConsult(distDfeSoap(consSitMissing('nfe')), 'nfe'))->toBeNull();
 });
 
-it('rejects the nfse family until its channel lands in task 3.4', function () {
+it('resolves the nfse family to the ADN primary channel since task 3.4', function () {
+    config(['fiscal.adn.producao.base_url' => 'https://adn.test']);
+
     $client = syncClientWithCredential();
     $subscription = syncSubscriptionFor($client, ['family' => 'nfse']);
 
-    expect(fn () => (new FiscalChannelFactory)->for($subscription))
-        ->toThrow(InvalidArgumentException::class);
+    // The production factory decrypts the PFX, so the fixture must hold
+    // real ciphertext (no network is touched: the channel is only built).
+    ClientCredential::withoutGlobalScopes()->where('client_id', $client->id)->firstOrFail()
+        ->forceFill([
+            'pfx_data' => Crypt::encryptString('pfx-bytes-fixture'),
+            'pfx_password' => Crypt::encryptString('pfx-pass-fixture'),
+        ])->save();
+
+    expect((new FiscalChannelFactory)->for($subscription))->toBeInstanceOf(NfseAdnChannel::class);
 });

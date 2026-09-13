@@ -9,7 +9,7 @@ namespace App\Services\Fiscal;
 final readonly class SyncResult
 {
     /**
-     * @param  'synced'|'empty'|'paused'|'suspended'  $status
+     * @param  'synced'|'empty'|'paused'|'suspended'|'limited'|'unknown'  $status
      * @param  int  $fetched  Summaries handled this run (manifested + persisted, or skipped as already known).
      * @param  string  $lastNsu  Cursor value after this run.
      * @param  string|null  $pause  Pause code when status is paused.
