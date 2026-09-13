@@ -199,6 +199,7 @@ final class ScienceService
                 'issuer_tax_id' => $meta['issuer_tax_id'],
                 'emission_at' => $meta['emission_at'],
                 'status' => 'pending',
+                'origin' => 'distribuicao',
                 'has_xml' => false,
             ]
         );

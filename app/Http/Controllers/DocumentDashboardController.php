@@ -45,11 +45,32 @@ class DocumentDashboardController extends Controller
         $family = $request->input('family');
         $family = in_array($family, ['nfe', 'cte', 'nfse'], true) ? $family : null;
 
+        $status = $request->input('status');
+        $status = in_array($status, ['authorized', 'cancelled', 'denied', 'pending'], true) ? $status : null;
+
+        $origin = $request->input('origin');
+        $origin = in_array($origin, ['distribuicao', 'portal'], true) ? $origin : null;
+
+        $q = is_string($request->input('q')) ? trim($request->input('q')) : '';
+
+        $sort = $request->input('sort');
+        $sort = in_array($sort, ['documento', 'emissao', 'status'], true) ? $sort : 'emissao';
+
+        $dir = strtolower((string) $request->input('dir')) === 'asc' ? 'asc' : 'desc';
+
         $documents = FiscalDocument::query()
             ->with('client:id,razao_social')
             ->when($family !== null, fn ($query) => $query->where('family', $family))
-            ->orderByDesc('emission_at')
-            ->orderByDesc('id')
+            ->when($status !== null, fn ($query) => $query->where('status', $status))
+            ->when($origin !== null, fn ($query) => $query->where('origin', $origin))
+            ->when($q !== '', fn ($query) => $query->where(function ($query) use ($q) {
+                $like = '%'.$q.'%';
+                $query->where('key', 'like', $like)
+                    ->orWhere('number', 'like', $like)
+                    ->orWhere('issuer_name', 'like', $like);
+            }))
+            ->orderBy($this->sortColumn($sort), $dir)
+            ->orderBy('id', $dir)
             ->paginate(15)
             ->withQueryString()
             ->through(fn (FiscalDocument $document) => $this->row($document));
@@ -63,7 +84,14 @@ class DocumentDashboardController extends Controller
 
         return Inertia::render('documents/All', [
             'documents' => $documents,
-            'family' => $family,
+            'filters' => [
+                'q' => $q,
+                'family' => $family,
+                'status' => $status,
+                'origin' => $origin,
+                'sort' => $sort,
+                'dir' => $dir,
+            ],
             'clients' => $clients,
         ]);
     }
@@ -340,6 +368,7 @@ class DocumentDashboardController extends Controller
             'recipient_tax_id' => $document->recipient_tax_id,
             'status' => $document->status,
             'status_label' => $this->statusLabel($document->status),
+            'origin' => $document->origin,
             'has_xml' => (bool) $document->has_xml,
             'has_danfe' => (bool) $document->has_danfe,
             'client' => $document->client !== null ? [
@@ -347,6 +376,15 @@ class DocumentDashboardController extends Controller
                 'name' => $document->client->razao_social,
             ] : null,
         ];
+    }
+
+    protected function sortColumn(string $sort): string
+    {
+        return match ($sort) {
+            'documento' => 'number',
+            'status' => 'status',
+            default => 'emission_at',
+        };
     }
 
     protected function statusLabel(?string $status): string

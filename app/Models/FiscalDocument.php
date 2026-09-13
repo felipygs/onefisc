@@ -26,6 +26,7 @@ use Illuminate\Support\Carbon;
  * @property string|null $recipient_name
  * @property string|null $recipient_tax_id
  * @property string|null $status
+ * @property string|null $origin
  * @property bool $has_xml
  * @property bool $has_danfe
  * @property string|null $xml_path
@@ -33,7 +34,7 @@ use Illuminate\Support\Carbon;
  * @property Carbon|null $created_at
  * @property Carbon|null $updated_at
  */
-#[Fillable(['client_id', 'family', 'doc_type', 'number', 'series', 'key', 'derived_from_key', 'emission_at', 'issuer_name', 'issuer_tax_id', 'recipient_name', 'recipient_tax_id', 'status', 'has_xml', 'has_danfe', 'xml_path', 'pdf_path'])]
+#[Fillable(['client_id', 'family', 'doc_type', 'number', 'series', 'key', 'derived_from_key', 'emission_at', 'issuer_name', 'issuer_tax_id', 'recipient_name', 'recipient_tax_id', 'status', 'origin', 'has_xml', 'has_danfe', 'xml_path', 'pdf_path'])]
 class FiscalDocument extends Model
 {
     /** @use HasFactory<FiscalDocumentFactory> */

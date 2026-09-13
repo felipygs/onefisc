@@ -249,7 +249,7 @@ final class FiscalSyncRunner
                 return new SyncResult(status: 'volume_exhausted', fetched: 0, lastNsu: $lastNsu);
             }
 
-            $this->persistNfseItems($client, $batch->items);
+            $this->persistNfseItems($client, $batch->items, 'portal');
         }
 
         $this->runCompletion($client, $portal, $subscription->family);
@@ -268,7 +268,7 @@ final class FiscalSyncRunner
      *
      * @param  array<int, mixed>  $items  Channel payloads are untrusted boundary data.
      */
-    private function persistNfseItems(Client $client, array $items): void
+    private function persistNfseItems(Client $client, array $items, string $origin = 'distribuicao'): void
     {
         foreach ($items as $item) {
             if (! is_array($item)) {
@@ -300,6 +300,7 @@ final class FiscalSyncRunner
                     'issuer_tax_id' => $meta['issuer_tax_id'],
                     'emission_at' => $meta['emission_at'],
                     'status' => 'pending',
+                    'origin' => $origin,
                     'has_xml' => false,
                 ]
             );

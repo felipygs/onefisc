@@ -1,6 +1,69 @@
 export type FiscalFamily = 'nfe' | 'cte' | 'nfse';
-export interface FiscalDocumentRow { id: number; family: FiscalFamily; doc_type: string; number: string | null; series: string | null; key: string | null; derived_from_key: boolean; emission_at: string | null; issuer_name: string | null; issuer_tax_id: string | null; recipient_name: string | null; recipient_tax_id: string | null; status: 'authorized' | 'cancelled' | 'denied' | 'pending' | null; status_label: string; has_xml: boolean; has_danfe: boolean; client?: { id: number; name: string } | null; }
-export interface SyncState { last_run_at: string | null; new_documents: number; next_run_at: string | null; blocked_until: string | null; volume_exhausted: boolean; }
-export type CertificateState = { status: 'valid'; expires_at: string } | { status: 'expiring'; expires_at: string } | { status: 'expired' } | { status: 'missing' };
-export interface AttentionRow { client_id: number; name: string; tax_id: string; reason: 'sync_failed' | 'coverage_limited' | 'certificate_missing' | 'certificate_expiring' | 'pending_xml'; }
-export interface DocumentsOverview { totals: { documents: number; pending_xml: number; sync_attention: number; certificates_expiring: number; clients: number; clients_with_documents: number }; families: { family: FiscalFamily; count: number }[]; rankings: { clients: { id: number; name: string; value: number }[] }; recent: FiscalDocumentRow[]; attention: AttentionRow[]; }
+export interface FiscalDocumentRow {
+    id: number;
+    family: FiscalFamily;
+    doc_type: string;
+    number: string | null;
+    series: string | null;
+    key: string | null;
+    derived_from_key: boolean;
+    emission_at: string | null;
+    issuer_name: string | null;
+    issuer_tax_id: string | null;
+    recipient_name: string | null;
+    recipient_tax_id: string | null;
+    status: 'authorized' | 'cancelled' | 'denied' | 'pending' | null;
+    status_label: string;
+    origin: DocumentOrigin | null;
+    has_xml: boolean;
+    has_danfe: boolean;
+    client?: { id: number; name: string } | null;
+}
+export type DocumentOrigin = 'distribuicao' | 'portal';
+export type DocumentSortKey = 'documento' | 'emissao' | 'status';
+export type SortDir = 'asc' | 'desc';
+export interface DocumentFilters {
+    q: string;
+    family: FiscalFamily | null;
+    status: string | null;
+    origin: DocumentOrigin | null;
+    sort: DocumentSortKey;
+    dir: SortDir;
+}
+export interface SyncState {
+    last_run_at: string | null;
+    new_documents: number;
+    next_run_at: string | null;
+    blocked_until: string | null;
+    volume_exhausted: boolean;
+}
+export type CertificateState =
+    | { status: 'valid'; expires_at: string }
+    | { status: 'expiring'; expires_at: string }
+    | { status: 'expired' }
+    | { status: 'missing' };
+export interface AttentionRow {
+    client_id: number;
+    name: string;
+    tax_id: string;
+    reason:
+        | 'sync_failed'
+        | 'coverage_limited'
+        | 'certificate_missing'
+        | 'certificate_expiring'
+        | 'pending_xml';
+}
+export interface DocumentsOverview {
+    totals: {
+        documents: number;
+        pending_xml: number;
+        sync_attention: number;
+        certificates_expiring: number;
+        clients: number;
+        clients_with_documents: number;
+    };
+    families: { family: FiscalFamily; count: number }[];
+    rankings: { clients: { id: number; name: string; value: number }[] };
+    recent: FiscalDocumentRow[];
+    attention: AttentionRow[];
+}
