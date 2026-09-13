@@ -14,6 +14,7 @@ use App\Support\WorkCompetence;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 use Inertia\Inertia;
@@ -84,8 +85,12 @@ class WorkViewController extends Controller
 
         $validated = $request->validate([
             'competence' => ['sometimes', 'string', 'regex:'.WorkCompetence::PATTERN],
+            'cal' => ['sometimes', 'string', 'in:month,week,day'],
+            'date' => ['sometimes', 'date_format:Y-m-d'],
         ], [
             'competence.regex' => 'A competência deve estar no formato AAAA-MM.',
+            'cal.in' => 'A visão do calendário deve ser month, week ou day.',
+            'date.date_format' => 'A data deve estar no formato AAAA-MM-DD.',
         ]);
 
         $competence = $validated['competence'] ?? null;
@@ -112,6 +117,15 @@ class WorkViewController extends Controller
         if ($view === 'tarefas') {
             $props['board'] = $this->board($account->id, $user instanceof User ? $user : null, $competence);
             $props['hasAssignments'] = $this->hasAssignments($account->id, $user instanceof User ? $user : null);
+        }
+
+        if ($view === 'calendario') {
+            $props['calendar'] = $this->calendar(
+                $account->id,
+                $user instanceof User ? $user : null,
+                $validated['cal'] ?? null,
+                $validated['date'] ?? null
+            );
         }
 
         return Inertia::render('work/Processos', $props);
@@ -324,6 +338,138 @@ class WorkViewController extends Controller
         }
 
         return $board;
+    }
+
+    /**
+     * Calendar payload for the `calendario` shell view (Task 3.3).
+     *
+     * Ranges by `cal` (default `month`) around `date` (default today): month
+     * is the full civil month (first–last day), week is Monday–Sunday
+     * containing the date, day is the single date. The grid set holds every
+     * visible task with `due_on` inside the range (inclusive) — visibility
+     * reuses the 3.1 `scopeVisible` rule and there is intentionally NO
+     * `forCompetence` filter, so a prior-competence task due in range shows
+     * by due date even when it shares nothing with the range's competence.
+     * Competence inference runs ONLY for a full civil month (`cal=month`,
+     * which by construction IS the full month): the 3.1 open-time
+     * materialization for that competence happens before listing, exactly
+     * like the list/tree/board opens. Week/day NEVER materialize, even when
+     * both bounds sit in one month. Rows without a valid `due_on` are
+     * listed separately as `dateless` — never plotted.
+     *
+     * `due_on` serializes as `Y-m-d` strings (calendar payloads stay
+     * consistent; list/detail keep their own format, out of scope here).
+     *
+     * @return array<string, mixed>
+     */
+    protected function calendar(int $accountId, ?User $user, ?string $cal, ?string $date): array
+    {
+        $cal ??= 'month';
+        $anchor = $date !== null && $date !== ''
+            ? Carbon::createFromFormat('Y-m-d', $date)->startOfDay()
+            : Carbon::today();
+
+        [$start, $end] = match ($cal) {
+            'day' => [$anchor->copy(), $anchor->copy()],
+            'week' => [
+                $anchor->copy()->startOfWeek(Carbon::MONDAY),
+                $anchor->copy()->endOfWeek(Carbon::SUNDAY),
+            ],
+            default => [
+                $anchor->copy()->startOfMonth(),
+                $anchor->copy()->endOfMonth(),
+            ],
+        };
+
+        $startString = $start->format('Y-m-d');
+        $endString = $end->format('Y-m-d');
+        $today = Carbon::today()->format('Y-m-d');
+
+        // ONLY a full civil month infers competence — `cal=month` always
+        // qualifies because the range above IS the whole month.
+        $competence = $cal === 'month' ? $start->format('Y-m') : null;
+
+        if ($competence !== null) {
+            // GET with side effect (legacy-mandated, same as 3.1): opening
+            // the month materializes the missing checklist instances first.
+            WorkCompetence::materialize($accountId, $user, $competence);
+        }
+
+        $base = function () use ($accountId, $user) {
+            return WorkTaskPolicy::scopeVisible(
+                WorkTask::query()->where('work_tasks.account_id', $accountId),
+                $user
+            );
+        };
+
+        $tasks = $base()
+            // whereDate (not whereBetween): the `date` cast persists
+            // `Y-m-d H:i:s` strings under SQLite, and a bare string bound
+            // would lexicographically miss same-day rows.
+            ->whereDate('work_tasks.due_on', '>=', $startString)
+            ->whereDate('work_tasks.due_on', '<=', $endString)
+            ->with([
+                'process:id,title,target_lead_days',
+                'client:id,razao_social',
+                'assignee:id,name',
+            ])
+            ->orderBy('work_tasks.due_on')
+            ->orderBy('work_tasks.position')
+            ->orderBy('work_tasks.id')
+            ->get();
+
+        $dateless = $base()
+            ->whereNull('work_tasks.due_on')
+            ->with([
+                'process:id,title,target_lead_days',
+                'client:id,razao_social',
+                'assignee:id,name',
+            ])
+            ->orderBy('work_tasks.position')
+            ->orderBy('work_tasks.id')
+            ->get();
+
+        return [
+            'cal' => $cal,
+            'date' => $anchor->format('Y-m-d'),
+            'start' => $startString,
+            'end' => $endString,
+            'competence' => $competence,
+            'today' => $today,
+            'tasks' => $tasks->map(fn (WorkTask $task): array => $this->serializeCalendarTask($task, $today))->all(),
+            'dateless' => $dateless->map(fn (WorkTask $task): array => $this->serializeCalendarTask($task, $today))->all(),
+        ];
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    protected function serializeCalendarTask(WorkTask $task, string $today): array
+    {
+        $dueOn = $task->due_on?->format('Y-m-d');
+
+        return [
+            'id' => $task->id,
+            'title' => $task->title,
+            'status' => $task->status,
+            'position' => $task->position,
+            'priority' => $task->priority,
+            'due_on' => $dueOn,
+            'target_date' => $task->target_date,
+            'is_overdue' => $dueOn !== null && $task->status !== 'done' && $dueOn < $today,
+            'process' => $task->process === null ? null : [
+                'id' => $task->process->id,
+                'title' => $task->process->title,
+            ],
+            'client' => $task->client === null ? null : [
+                'id' => $task->client->id,
+                'razao_social' => $task->client->razao_social,
+            ],
+            'assignee' => $task->assignee === null ? null : [
+                'id' => $task->assignee->id,
+                'name' => $task->assignee->name,
+            ],
+        ];
     }
 
     protected function manages(?User $user): bool

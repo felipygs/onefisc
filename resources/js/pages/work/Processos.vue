@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { Head, router } from '@inertiajs/vue3';
 import { ref, watch } from 'vue';
+import WorkCalendar from '@/components/work/WorkCalendar.vue';
 import WorkChildNav from '@/components/work/WorkChildNav.vue';
 import { move as moveTask } from '@/actions/App/Http/Controllers/WorkTaskController';
 import { processos as workProcessos } from '@/routes/work';
@@ -49,15 +50,50 @@ interface BoardCard {
     assignee: WorkAssignee | null;
 }
 
+// Espelha o payload `calendar` do WorkViewController (visões mês/semana/dia
+// por `due_on` + lista `dateless`); a forma canônica vive no backend, aqui é
+// estrutural para a prop do WorkCalendar.
+interface CalendarTask {
+    id: number;
+    title: string;
+    status: string;
+    position: number;
+    priority: string;
+    due_on: string | null;
+    target_date: string | null;
+    is_overdue: boolean;
+    process: { id: number; title: string } | null;
+    client: { id: number; razao_social: string } | null;
+    assignee: WorkAssignee | null;
+}
+
+interface CalendarPayload {
+    cal: 'month' | 'week' | 'day';
+    date: string;
+    start: string;
+    end: string;
+    competence: string | null;
+    today: string;
+    tasks: CalendarTask[];
+    dateless: CalendarTask[];
+}
+
 const props = withDefaults(
     defineProps<{
         view: string;
         search?: string;
         processes?: TreeProcess[];
         board?: Record<BoardStatus, BoardCard[]>;
+        calendar?: CalendarPayload | null;
         hasAssignments?: boolean;
     }>(),
-    { search: '', processes: () => [], board: undefined, hasAssignments: true },
+    {
+        search: '',
+        processes: () => [],
+        board: undefined,
+        calendar: null,
+        hasAssignments: true,
+    },
 );
 
 const BOARD_ORDER: BoardStatus[] = ['backlog', 'todo', 'in_progress', 'done'];
@@ -594,14 +630,17 @@ function neighbor(card: BoardCard, direction: -1 | 1): BoardStatus | null {
                     />
                 </div>
 
-                <!-- Visão Calendário: Onda 2 (3.3) -->
-                <UPageCard
-                    v-else-if="view === 'calendario'"
-                    title="Calendário chega na Onda 2"
-                    description="As visões de mês, semana e dia com a semântica de vencimento chegam na Task 3.3."
-                    icon="i-lucide-calendar"
-                    data-test="work-calendario-empty"
-                />
+                <!-- Visão Calendário: mês/semana/dia por vencimento (3.3) -->
+                <template v-else-if="view === 'calendario'">
+                    <WorkCalendar v-if="calendar" :calendar="calendar" />
+                    <UPageCard
+                        v-else
+                        title="Calendário indisponível"
+                        description="Não foi possível carregar o calendário. Recarregue a página."
+                        icon="i-lucide-calendar"
+                        data-test="work-calendario-empty"
+                    />
+                </template>
 
                 <!-- Visão Clientes: Onda 3 com o workspace (4.3) -->
                 <UPageCard
