@@ -9,8 +9,8 @@ use App\Models\FiscalSyncSubscription;
 /**
  * Runs one incremental sync cycle: cursor mechanics + SEFAZ pause handling.
  *
- * No valid credential (missing or expired) suspends the run without ever
- * calling SEFAZ. A SEFAZ pause (cStat 137/656) records blocked_until at the
+ * No valid credential (missing, incomplete or expired) suspends the run
+ * without ever calling SEFAZ. A SEFAZ pause (cStat 137/656) records blocked_until at the
  * next full hour without advancing past the confirmed NSU. Document
  * persistence and ciencia land in tasks 3.3/4.1 — items are only counted.
  */
@@ -76,6 +76,7 @@ final class FiscalSyncRunner
 
         return $credential !== null
             && filled($credential->getAttribute('pfx_data'))
+            && filled($credential->getAttribute('pfx_password'))
             && $credential->expires_at !== null
             && $credential->expires_at->isFuture();
     }

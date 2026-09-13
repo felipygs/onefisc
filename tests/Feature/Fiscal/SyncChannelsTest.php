@@ -5,11 +5,15 @@ use App\Models\ClientCredential;
 use App\Models\FiscalSyncCursor;
 use App\Models\FiscalSyncSubscription;
 use App\Services\Fiscal\ChannelBatch;
+use App\Services\Fiscal\CTeDistChannel;
 use App\Services\Fiscal\DistDfeParser;
 use App\Services\Fiscal\DistributionChannel;
 use App\Services\Fiscal\FiscalChannelFactory;
 use App\Services\Fiscal\FiscalSyncRunner;
+use App\Services\Fiscal\NFeDistChannel;
 use Illuminate\Support\Carbon;
+use NFePHP\CTe\Tools as CTeTools;
+use NFePHP\NFe\Tools as NFeTools;
 
 // ---------------------------------------------------------------------------
 // Fakes of the INTERNAL interface (never the vendor, never real SEFAZ).
@@ -103,6 +107,75 @@ function docZipItem(string $nsu, string $schema, string $payload): string
 }
 
 // ---------------------------------------------------------------------------
+// Vendor Tools stubs (canned SOAP, never the network). The production
+// channel wrappers are built with these injected, so fetchByKey delegation
+// + family flag run for real.
+// ---------------------------------------------------------------------------
+
+final class StubNFeTools extends NFeTools
+{
+    public function __construct(private readonly string $canned) {}
+
+    public function sefazConsultaChave(string $chave, ?int $tpAmb = null): string
+    {
+        return $this->canned;
+    }
+}
+
+final class StubCTeTools extends CTeTools
+{
+    public function __construct(private readonly string $canned) {}
+
+    public function sefazConsultaChave($chave, $tpAmb = null)
+    {
+        return $this->canned;
+    }
+}
+
+function consSitFound(string $family, string $key): string
+{
+    $ret = $family === 'cte' ? 'retConsSitCTe' : 'retConsSitNFe';
+    $prot = $family === 'cte' ? 'protCTe' : 'protNFe';
+    $keyTag = $family === 'cte' ? 'chCTe' : 'chNFe';
+
+    return "<{$ret} xmlns=\"http://www.portalfiscal.inf.br/nfe\" versao=\"4.00\">"
+        .'<tpAmb>1</tpAmb><verAplic>SP_1.0</verAplic><cStat>100</cStat><xMotivo>Autorizado</xMotivo>'
+        ."<{$prot} versao=\"4.00\"><infProt><tpAmb>1</tpAmb><verAplic>SP_1.0</verAplic>"
+        ."<{$keyTag}>{$key}</{$keyTag}><dhRecbto>2026-09-12T10:00:00-03:00</dhRecbto><cStat>100</cStat>"
+        ."</infProt></{$prot}></{$ret}>";
+}
+
+function consSitMissing(string $family): string
+{
+    $ret = $family === 'cte' ? 'retConsSitCTe' : 'retConsSitNFe';
+
+    return "<{$ret} xmlns=\"http://www.portalfiscal.inf.br/nfe\" versao=\"4.00\">"
+        .'<tpAmb>1</tpAmb><verAplic>SP_1.0</verAplic><cStat>217</cStat><xMotivo>Documento nao consta</xMotivo>'
+        ."</{$ret}>";
+}
+
+function channelWithCannedConsult(string $family, string $canned): DistributionChannel
+{
+    if ($family === 'cte') {
+        return new CTeDistChannel(
+            pfxContents: 'unused',
+            pfxPassword: 'unused',
+            cnpj: '12345678000195',
+            companyName: 'Cliente Teste',
+            tools: new StubCTeTools($canned),
+        );
+    }
+
+    return new NFeDistChannel(
+        pfxContents: 'unused',
+        pfxPassword: 'unused',
+        cnpj: '12345678000195',
+        companyName: 'Cliente Teste',
+        tools: new StubNFeTools($canned),
+    );
+}
+
+// ---------------------------------------------------------------------------
 // 1. Chained batches advance the cursor; an empty round keeps it.
 // ---------------------------------------------------------------------------
 
@@ -172,17 +245,19 @@ it('blocks until the next window on SEFAZ pause without moving the cursor', func
 })->with(['sefaz_no_documents', 'sefaz_overuse']);
 
 // ---------------------------------------------------------------------------
-// 3. Key lookup returns the document structure; unknown keys return null.
+// 3. Key lookup through the PRODUCTION wrappers (stubbed vendor transport,
+//    canned SOAP — never the network, never the fake).
 // ---------------------------------------------------------------------------
 
-it('returns the document structure by key and null for unknown keys', function () {
-    $fake = new FakeDistChannel;
-    $key = str_repeat('1', 44);
-    $fake->byKey[$key] = ['key' => $key, 'nsu' => '000000000000007', 'schema' => 'resNFe_v1.01.xsd'];
+it('resolves key lookup through the production channel wrappers', function (string $family) {
+    $key = str_repeat('5', 44);
 
-    expect($fake->fetchByKey($key))->toMatchArray(['key' => $key, 'nsu' => '000000000000007'])
-        ->and($fake->fetchByKey(str_repeat('9', 44)))->toBeNull();
-});
+    $found = channelWithCannedConsult($family, distDfeSoap(consSitFound($family, $key)));
+    $missing = channelWithCannedConsult($family, distDfeSoap(consSitMissing($family)));
+
+    expect($found->fetchByKey($key))->toMatchArray(['key' => $key])
+        ->and($missing->fetchByKey(str_repeat('9', 44)))->toBeNull();
+})->with(['nfe', 'cte']);
 
 // ---------------------------------------------------------------------------
 // 4. Missing / expired credential suspends without touching SEFAZ.
@@ -211,6 +286,19 @@ it('suspends without calling SEFAZ when the credential is expired', function () 
 
     expect($result->status)->toBe('suspended')
         ->and($fake->fetchSinceCalls)->toBe(0);
+});
+
+it('suspends without calling SEFAZ when the certificate password is blank', function () {
+    $client = syncClientWithCredential(['pfx_password' => '']);
+    $subscription = syncSubscriptionFor($client);
+
+    $fake = new FakeDistChannel;
+
+    $result = runnerWithFakeChannel($fake)->run($subscription);
+
+    expect($result->status)->toBe('suspended')
+        ->and($fake->fetchSinceCalls)->toBe(0)
+        ->and(FiscalSyncCursor::withoutGlobalScopes()->where('client_id', $client->id)->count())->toBe(0);
 });
 
 // ---------------------------------------------------------------------------
@@ -244,17 +332,9 @@ it('translates 137 and 656 into pause flags', function (string $cStat, string $p
 
 it('parses a key consult into a document array and null when absent', function () {
     $key = str_repeat('3', 44);
-    $found = '<retConsSitNFe xmlns="http://www.portalfiscal.inf.br/nfe" versao="4.00">'
-        .'<tpAmb>1</tpAmb><verAplic>SP_1.0</verAplic><cStat>100</cStat><xMotivo>Autorizado</xMotivo>'
-        .'<protNFe versao="4.00"><infProt><tpAmb>1</tpAmb><verAplic>SP_1.0</verAplic>'
-        ."<chNFe>{$key}</chNFe><dhRecbto>2026-09-12T10:00:00-03:00</dhRecbto><cStat>100</cStat>"
-        .'</infProt></protNFe></retConsSitNFe>';
 
-    $missing = '<retConsSitNFe xmlns="http://www.portalfiscal.inf.br/nfe" versao="4.00">'
-        .'<tpAmb>1</tpAmb><verAplic>SP_1.0</verAplic><cStat>217</cStat><xMotivo>NF-e nao consta</xMotivo></retConsSitNFe>';
-
-    expect(DistDfeParser::parseConsult(distDfeSoap($found), 'nfe'))->toMatchArray(['key' => $key])
-        ->and(DistDfeParser::parseConsult(distDfeSoap($missing), 'nfe'))->toBeNull();
+    expect(DistDfeParser::parseConsult(distDfeSoap(consSitFound('nfe', $key)), 'nfe'))->toMatchArray(['key' => $key])
+        ->and(DistDfeParser::parseConsult(distDfeSoap(consSitMissing('nfe')), 'nfe'))->toBeNull();
 });
 
 it('rejects the nfse family until its channel lands in task 3.4', function () {
